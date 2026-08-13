@@ -17,8 +17,8 @@ Prototyp.
 | 7 | uBlock Origin gebündelt | ✅ `scripts/fetch-ubo.sh` — voll (MV2, für Patch-Builds archiviert) + Lite (MV3, Dev-Shell), Checksum-verifiziert |
 | 8 | Dev-Shell-Prototyp (Chromium-Snapshot + Defaults + uBO Lite, ohne Compile) | ✅ `scripts/dev-shell.sh` — Smoke lokal bestanden (Chromium 153.0.8006.0, uBO Lite via CDP geladen) |
 | 9 | CI: Lint + Config-Validierung + Smoke | ✅ `.github/workflows/ci.yml` |
-| 10 | Build-Runner (self-hosted `chromium-builder`) | ⬜ Infrastruktur-Entscheidung offen (Kosten!) |
-| 11 | Erster voller Fetch + Build auf dem Runner | ⬜ blockiert durch 10 |
+| 10 | Build-Runner | ✅ entschieden (siehe `docs/BUILD-RUNNER.md`): Linux = Hetzner CCX63 on-demand (`scripts/cloud-build.sh`), macOS = M1 Max + externe NVMe, Windows zurückgestellt |
+| 11 | Erster voller Fetch + Build (Linux, CCX63) | ⬜ wartet auf `HCLOUD_TOKEN` (Hetzner-Cloud-Projekt, Inhaber-Aufgabe) |
 | 12 | Patches 001–003 (Branding, MV2, Store-Anonymisierung) | ⬜ blockiert durch 11 |
 
 ## Dev-Shell benutzen
@@ -54,11 +54,7 @@ Alle drei gegen den Chromium-Snapshot 153.0.8006.0 (mac_arm) verifiziert:
 
 ## Offene Entscheidungen
 
-1. **Build-Infrastruktur:** Self-hosted Runner (Hetzner dedicated / Mac mini
-   für macOS-Builds) vs. gemietete CI-Großläufer. Chromium-Builds brauchen
-   ~180 GB Disk und viele Kerne; macOS-Signierung braucht echte Apple-Hardware
-   oder notarization-fähige CI.
-2. **MV2-Strategie:** Solange Upstream die Policy `ExtensionManifestV2Availability`
-   respektiert, reicht sie für den Prototyp; der dauerhafte Weg ist Patch 002
-   (Brave-Vorbild). Beim ersten Checkout prüfen, was in M152 noch greift.
+1. ~~Build-Infrastruktur~~ → entschieden, siehe `docs/BUILD-RUNNER.md`.
+2. ~~MV2-Strategie~~ → geklärt: Policy greift nicht mehr (siehe Befunde),
+   Patch 002 ist der Weg.
 3. **Icon/Logo:** eigenes Icon-Set beauftragen (siehe `config/branding/identity.md`).
