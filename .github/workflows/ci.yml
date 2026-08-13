@@ -47,8 +47,13 @@ jobs:
           node-version: 22
       - name: install chromium deps
         run: sudo apt-get update -q && sudo apt-get install -y -q libnss3 libgbm1 libasound2t64
+      - name: allow unprivileged user namespaces (chromium sandbox on noble)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: run smoke test
         run: ./scripts/dev-shell.sh --smoke
+      - name: dump browser log on failure
+        if: failure()
+        run: tail -60 .cache/dev-shell.log || true
 
   # Full Chromium builds do NOT fit on free hosted runners (>30 GB checkout,
   # multi-hour compile). The build job is dispatch-only and expects a

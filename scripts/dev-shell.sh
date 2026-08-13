@@ -54,6 +54,7 @@ if [[ ! -d "$PROFILE/Default" ]]; then
 fi
 
 # Degoogled runtime surface (compile-time equivalents live in config/args/)
+# shellcheck disable=SC2054  # commas are part of --disable-features values
 FLAGS=(
   --user-data-dir="$PROFILE"
   --no-first-run
