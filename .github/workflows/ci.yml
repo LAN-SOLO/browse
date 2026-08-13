@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    name: Lint scripts & validate config
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: shellcheck
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q shellcheck
+          shellcheck scripts/*.sh
+
+      - name: validate JSON config
+        run: |
+          python3 -m json.tool config/policies/managed/browse-defaults.json > /dev/null
+          python3 -m json.tool config/initial_preferences.json > /dev/null
+          echo "JSON ok"
+
+      - name: patch series consistency
+        run: |
+          while IFS= read -r name; do
+            case "$name" in ''|'#'*) continue ;; esac
+            test -f "patches/$name" || { echo "missing patches/$name"; exit 1; }
+          done < patches/series
+          echo "series ok"
+
+      - name: uBlock lock resolves & checksum matches
+        run: |
+          . extensions/ublock.lock
+          curl -fsSL -o /tmp/ubo.zip "$UBO_URL"
+          echo "$UBO_SHA256  /tmp/ubo.zip" | sha256sum -c -
+
+  smoke:
+    name: Dev-shell smoke (chromium snapshot + uBO)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: install chromium deps
+        run: sudo apt-get update -q && sudo apt-get install -y -q libnss3 libgbm1 libasound2t64
+      - name: run smoke test
+        run: ./scripts/dev-shell.sh --smoke
+
+  # Full Chromium builds do NOT fit on free hosted runners (>30 GB checkout,
+  # multi-hour compile). The build job is dispatch-only and expects a
+  # self-hosted runner labeled `chromium-builder` (Phase 0 infra task).
+  build:
+    name: Full build (self-hosted, manual)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, chromium-builder]
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/fetch-chromium.sh
+      - run: ./scripts/apply-patches.sh
+      - run: ./scripts/build.sh
+
+# Note: the `build` job above only triggers via workflow_dispatch; the
+# `on:` block gains that trigger once a self-hosted builder exists.

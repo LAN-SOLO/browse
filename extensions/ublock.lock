@@ -1,0 +1,18 @@
+# Pinned uBlock Origin builds. Bump versions + checksums together, verified
+# against a fresh download.
+#
+# UBO_*  — full uBlock Origin (MV2). Upstream Chromium refuses MV2 since the
+#          2025 deprecation ("unsupported manifest version", verified against
+#          the 153.0.8006.0 snapshot on 2026-08-13; neither
+#          --disable-features nor the ExtensionManifestV2Availability policy
+#          revive it). Bundled into real browse builds once patch
+#          002-mv2-keepalive.patch exists.
+# UBOL_* — uBlock Origin Lite (MV3). Interim blocker for the dev shell so the
+#          prototype demonstrates ad blocking today.
+UBO_VERSION=1.73.0
+UBO_URL=https://github.com/gorhill/uBlock/releases/download/1.73.0/uBlock0_1.73.0.chromium.zip
+UBO_SHA256=22c62bc0f35ed0c5e95d1fc831a829af199c7ca6fdb4f841be034c25719ce911
+
+UBOL_VERSION=2026.812.1211
+UBOL_URL=https://github.com/uBlockOrigin/uBOL-home/releases/download/2026.812.1211/uBOLite_2026.812.1211.chromium.zip
+UBOL_SHA256=e0daf472f352fd1eeb1d5828f70c1508d28d08bb7550a3a05865b549e49258b9

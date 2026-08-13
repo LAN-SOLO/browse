@@ -1,0 +1,39 @@
+{
+  "homepage_is_newtabpage": true,
+  "browser": {
+    "show_home_button": false,
+    "check_default_browser": false
+  },
+  "distribution": {
+    "import_bookmarks": false,
+    "make_chrome_default": false,
+    "make_chrome_default_for_user": false,
+    "suppress_first_run_bubble": true,
+    "do_not_create_desktop_shortcut": false,
+    "do_not_launch_chrome": true,
+    "suppress_first_run_default_browser_prompt": true
+  },
+  "credentials_enable_service": false,
+  "credentials_enable_autosignin": false,
+  "search": {
+    "suggest_enabled": false
+  },
+  "safebrowsing": {
+    "enabled": true,
+    "enhanced": false
+  },
+  "enable_do_not_track": true,
+  "https_only_mode_enabled": true,
+  "payments": {
+    "can_make_payment_enabled": false
+  },
+  "autofill": {
+    "credit_card_enabled": false
+  },
+  "translate": {
+    "enabled": false
+  },
+  "alternate_error_pages": {
+    "enabled": false
+  }
+}

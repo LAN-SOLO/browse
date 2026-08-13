@@ -1,0 +1,28 @@
+# browse — shared GN args for all platforms.
+# NOTE: arg names drift between Chromium milestones. This set targets the pinned
+# version in chromium_version.txt; run `gn args out/Release --list` after every
+# version bump and fix what moved.
+
+is_official_build = true
+is_debug = false
+symbol_level = 1
+blink_symbol_level = 0
+
+# No Google service wiring: without API keys the browser cannot talk to
+# sync/translate/etc. even by accident. browse ships its own sync later.
+google_api_key = ""
+google_default_client_id = ""
+google_default_client_secret = ""
+
+# Telemetry / phone-home surfaces off at compile time where possible.
+enable_reporting = false
+enable_remoting = false
+enable_nacl = false
+enable_hangout_services_extension = false
+
+# Full media support (except DRM): streaming sites should not feel broken.
+proprietary_codecs = true
+ffmpeg_branding = "Chrome"
+
+# Widevine stays off until the license exists (BROWSE_PLAN.md §2.3).
+enable_widevine = false

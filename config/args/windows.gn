@@ -1,0 +1,3 @@
+# browse — Windows-specific GN args (append to common.gn)
+target_os = "win"
+target_cpu = "x64"

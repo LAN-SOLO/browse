@@ -1,0 +1,16 @@
+{
+  "MetricsReportingEnabled": false,
+  "SafeBrowsingExtendedReportingEnabled": false,
+  "UrlKeyedAnonymizedDataCollectionEnabled": false,
+  "FeedbackSurveysEnabled": false,
+  "BackgroundModeEnabled": false,
+  "PromotionsEnabled": false,
+  "ShoppingListEnabled": false,
+  "DefaultBrowserSettingEnabled": false,
+  "PasswordLeakDetectionEnabled": false,
+  "AlternateErrorPagesEnabled": false,
+  "SearchSuggestEnabled": false,
+  "SpellCheckServiceEnabled": false,
+  "TranslateEnabled": false,
+  "ExtensionManifestV2Availability": 2
+}

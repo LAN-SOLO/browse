@@ -1,0 +1,7 @@
+# toolchain + checkout (fetched by scripts/, never committed)
+/chromium/
+/.cache/
+/.dev-profile/
+
+.DS_Store
+node_modules

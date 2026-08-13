@@ -1,0 +1,5 @@
+# browse — macOS-specific GN args (append to common.gn)
+target_os = "mac"
+target_cpu = "arm64"
+# For Intel release builds use a second out dir with target_cpu = "x64",
+# then create a universal binary in package.sh (universalizer).

@@ -12,9 +12,19 @@ Produktseite: https://lan-solo.com/de/tools/browse/ · Plan: `BROWSE_PLAN.md`
 
 ## Status
 
-Planungsphase — noch kein Code. Nächster Schritt laut Roadmap (Phase 0):
-Build-/Merge-Pipeline für Chromium (CI für alle drei Plattformen), Branding,
-Telemetrie-Entfernung, Defaults, uBlock Origin gebündelt, MV2 keep-alive.
+**Phase 0 (Fundament) läuft** — Stand und Befunde: `docs/PHASE-0.md`.
+Versions-Pinning, Fetch-/Build-/Patch-Pipeline, telemetriefreie Build-Args,
+Defaults/Policies und CI stehen; der Dev-Shell-Prototyp startet einen
+Chromium-Snapshot mit browse-Defaults und uBlock Origin Lite:
+
+```bash
+./scripts/dev-shell.sh          # Prototyp starten (GUI)
+./scripts/dev-shell.sh --smoke  # Headless-Check (läuft auch in CI)
+```
+
+Offen: Build-Runner-Infrastruktur (self-hosted `chromium-builder`), erster
+voller Chromium-Build, Patches 001–003 (Branding, MV2 keep-alive,
+Store-Anonymisierung).
 
 ## Verwandte Repositories
 

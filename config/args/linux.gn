@@ -1,0 +1,5 @@
+# browse — Linux-specific GN args (append to common.gn)
+target_os = "linux"
+target_cpu = "x64"
+use_sysroot = true
+# Packaging (deb/rpm/Flatpak) happens in package.sh, not here.
