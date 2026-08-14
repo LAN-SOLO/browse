@@ -3,5 +3,8 @@
 /.cache/
 /.dev-profile/
 
+# local-only monitoring dashboard (personal, stays off git)
+/monitor/
+
 .DS_Store
 node_modules
