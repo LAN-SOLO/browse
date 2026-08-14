@@ -18,8 +18,16 @@ fi
 export PATH="$DEPOT:$PATH"
 
 if [[ ! -d "$WORK/src" ]]; then
-  echo "fetch: initial chromium fetch (this is the big one)"
-  (cd "$WORK" && fetch --nohooks chromium)
+  # a killed first attempt leaves .gclient + temp dirs behind; `fetch` refuses
+  # to run again in that case, but `gclient sync` resumes cleanly
+  rm -rf "$WORK"/_gclient_src_* 2>/dev/null || true
+  if [[ -f "$WORK/.gclient" ]]; then
+    echo "fetch: .gclient present — resuming interrupted fetch via gclient sync"
+    (cd "$WORK" && gclient sync --nohooks)
+  else
+    echo "fetch: initial chromium fetch (this is the big one)"
+    (cd "$WORK" && fetch --nohooks chromium)
+  fi
 fi
 
 echo "fetch: checking out tags/$VERSION"
