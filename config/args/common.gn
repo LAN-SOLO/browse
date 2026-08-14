@@ -8,6 +8,11 @@ is_debug = false
 symbol_level = 1
 blink_symbol_level = 0
 
+# PGO braucht heruntergeladene Profile (gclient custom_var
+# checkout_pgo_profiles + runhooks). Für Dev-Builds aus; für Release-Builds
+# aktivieren, sobald die Profile im Checkout liegen.
+chrome_pgo_phase = 0
+
 # No Google service wiring: without API keys the browser cannot talk to
 # sync/translate/etc. even by accident. browse ships its own sync later.
 google_api_key = ""
@@ -15,9 +20,9 @@ google_default_client_id = ""
 google_default_client_secret = ""
 
 # Telemetry / phone-home surfaces off at compile time where possible.
+# (enable_nacl entfernt: NaCl existiert in M152 nicht mehr, gn ignoriert es)
 enable_reporting = false
 enable_remoting = false
-enable_nacl = false
 enable_hangout_services_extension = false
 
 # Full media support (except DRM): streaming sites should not feel broken.
