@@ -52,15 +52,18 @@ seltenen Voll-Builds).
 4. Dedicated Server (Option C) erst neu bewerten, wenn Build-Frequenz
    dauerhaft ≥ ~1/Tag liegt.
 
-**Status: entschieden (2026-08-13, Inhaber):**
+**Status: entschieden (revidiert 2026-08-14, Inhaber): serverlos starten.**
 
-- **Linux: Option A** — CCX63 on-demand. Automatisierung: `scripts/cloud-build.sh`
-  (Server erzeugen → bauen → Artefakt holen → Server löschen; optionaler
-  Checkout-Snapshot als Cache, ~200 GB ≈ wenige €/Monat Speicherkosten).
-- **macOS: M1 Max + dedizierte externe TB/USB4-NVMe-SSD** (2 TB, einmalig
-  ~€130–180) als self-hosted Runner.
+- **Erster voller Build: macOS-arm64 lokal auf dem M1 Max** (10 Kerne, 64 GB
+  RAM). Checkout + Build liegen auf einer dedizierten externen SSD
+  (`/Volumes/browse500GBdev`, APFS, ~470 MB/s, Spotlight deaktiviert),
+  eingebunden per Symlink `chromium/` im Repo. €0 laufende Kosten.
+- **Linux: zurückgestellt bis Phase 2** (Release-Builds). Dann greift die
+  vorbereitete CCX63-on-demand-Automatisierung (`scripts/cloud-build.sh`,
+  ~€2–4/Build) — Hetzner-Konto erst dann nötig.
 - **Windows: zurückgestellt**, Neubewertung wenn Linux + macOS stehen.
+- Geprüft und verworfen: vorhandener Hostinger-VPS (Game Panel 1: 1 Kern,
+  4 GB RAM, 50 GB Disk — kategorisch zu klein; taugt später ggf. als
+  Update-Server).
 
-Nächste Schritte (Inhaber): (1) Hetzner-Cloud-Projekt anlegen und API-Token
-(Lesen+Schreiben) erzeugen → als `HCLOUD_TOKEN` bereitstellen; (2) externe
-NVMe-SSD beschaffen. Erster Lauf von `cloud-build.sh` bitte beaufsichtigt.
+Voraussetzung für den lokalen Build: volles Xcode (App Store).

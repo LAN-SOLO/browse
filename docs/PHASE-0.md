@@ -17,8 +17,8 @@ Prototyp.
 | 7 | uBlock Origin gebündelt | ✅ `scripts/fetch-ubo.sh` — voll (MV2, für Patch-Builds archiviert) + Lite (MV3, Dev-Shell), Checksum-verifiziert |
 | 8 | Dev-Shell-Prototyp (Chromium-Snapshot + Defaults + uBO Lite, ohne Compile) | ✅ `scripts/dev-shell.sh` — Smoke lokal bestanden (Chromium 153.0.8006.0, uBO Lite via CDP geladen) |
 | 9 | CI: Lint + Config-Validierung + Smoke | ✅ `.github/workflows/ci.yml` |
-| 10 | Build-Runner | ✅ entschieden (siehe `docs/BUILD-RUNNER.md`): Linux = Hetzner CCX63 on-demand (`scripts/cloud-build.sh`), macOS = M1 Max + externe NVMe, Windows zurückgestellt |
-| 11 | Erster voller Fetch + Build (Linux, CCX63) | ⬜ wartet auf `HCLOUD_TOKEN` (Hetzner-Cloud-Projekt, Inhaber-Aufgabe) |
+| 10 | Build-Runner | ✅ entschieden, revidiert auf serverlos (siehe `docs/BUILD-RUNNER.md`): erster Build macOS-arm64 lokal auf dem M1 Max + externe SSD; Linux/Windows in Phase 2 (`cloud-build.sh` liegt bereit) |
+| 11 | Erster voller Fetch + Build (macOS, lokal) | 🔄 Fetch auf `/Volumes/browse500GBdev` läuft (2026-08-14); Build wartet auf Xcode-Installation |
 | 12 | Patches 001–003 (Branding, MV2, Store-Anonymisierung) | ⬜ blockiert durch 11 |
 
 ## Dev-Shell benutzen
