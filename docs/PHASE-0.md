@@ -19,7 +19,10 @@ Prototyp.
 | 9 | CI: Lint + Config-Validierung + Smoke | ✅ `.github/workflows/ci.yml` |
 | 10 | Build-Runner | ✅ entschieden, revidiert auf serverlos (siehe `docs/BUILD-RUNNER.md`): erster Build macOS-arm64 lokal auf dem M1 Max + externe SSD; Linux/Windows in Phase 2 (`cloud-build.sh` liegt bereit) |
 | 11 | Erster voller Fetch + Build (macOS, lokal) | ✅ **2026-08-15: Chromium.app (360 MB) baut und startet** — `Chromium 152.0.7977.42`, 53.212 Schritte auf dem M1 Max, Checkout + Build auf der externen SSD |
-| 12 | Patches 001–003 (Branding, MV2, Store-Anonymisierung) | ⬜ blockiert durch 11 |
+| 12 | Patches 001–003 (Branding, MV2, Store-Anonymisierung) | ✅ **2026-08-16: gebaut & verifiziert** — `browse.app` / `com.lan-solo.browse` / `browse 152.0.7977.42`; volles uBlock Origin (MV2) lädt und läuft (Background-Seite aktiv); X-Client-Data unterbunden. Patches in `patches/`, `series` gefüllt |
+
+**Phase 0 abgeschlossen.** Nächster Block: eigenes Icon-Set (Inhaber), dann Phase 1
+(vertikale Tabs, Shields-UI, Sleeping Tabs).
 
 ## Dev-Shell benutzen
 
