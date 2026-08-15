@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Batman <batman@Batman.local>
+Date: Sun, 16 Aug 2026 00:45:45 +0200
+Subject: [PATCH] browse patch 002: keep Manifest V2 extensions enabled
+
+---
+ extensions/browser/manifest_v2_handler.cc | 15 +++++++++------
+ 1 file changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/extensions/browser/manifest_v2_handler.cc b/extensions/browser/manifest_v2_handler.cc
+index 5841d3dfbc888..51b98357caa2c 100644
+--- a/extensions/browser/manifest_v2_handler.cc
++++ b/extensions/browser/manifest_v2_handler.cc
+@@ -109,12 +109,15 @@ bool ManifestV2HandlerFactory::ServiceIsCreatedWithBrowserContext() const {
+ 
+ // Returns true if legacy extensions should be disabled.
+ bool ShouldDisableLegacyExtensions() {
+-  if (g_allow_mv2_for_testing) {
+-    // We allow legacy MV2 extensions for testing purposes.
+-    return false;
+-  }
+-
+-  return true;
++  // browse patch 002: keep Manifest V2 extensions working indefinitely.
++  // This is the single chokepoint the deprecation routes through — install
++  // blocking, enable blocking and the automatic disabling of installed MV2
++  // extensions all gate on this. Always returning false keeps the real
++  // uBlock Origin (and other full webRequest MV2 extensions) usable, which
++  // is browse's core promise. The g_allow_mv2_for_testing flag is now
++  // subsumed (it only ever forced this same false), and stays referenced by
++  // AllowMV2ExtensionsForTesting() below.
++  return false;
+ }
+ 
+ }  // namespace
