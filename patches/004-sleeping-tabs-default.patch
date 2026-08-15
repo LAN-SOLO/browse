@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Batman <batman@Batman.local>
+Date: Sun, 16 Aug 2026 01:07:31 +0200
+Subject: [PATCH] browse patch 004: enable Memory Saver (sleeping tabs) by
+ default
+
+---
+ components/performance_manager/user_tuning/prefs.cc | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/components/performance_manager/user_tuning/prefs.cc b/components/performance_manager/user_tuning/prefs.cc
+index 40915dcac0a6c..cd0b68cf39606 100644
+--- a/components/performance_manager/user_tuning/prefs.cc
++++ b/components/performance_manager/user_tuning/prefs.cc
+@@ -31,8 +31,12 @@ void RegisterLocalStatePrefs(PrefRegistrySimple* registry) {
+   registry->RegisterIntegerPref(
+       kMemorySaverModeTimeBeforeDiscardInMinutes,
+       kDefaultMemorySaverModeTimeBeforeDiscardInMinutes);
++  // browse patch 004: Memory Saver ("Sleeping Tabs") on by default. Inactive
++  // tabs are discarded to reclaim their memory, matching the Edge/Vivaldi
++  // behavior users cite; upstream ships it off. Users can still turn it off
++  // in settings — this only changes the initial default.
+   registry->RegisterIntegerPref(
+-      kMemorySaverModeState, static_cast<int>(MemorySaverModeState::kDisabled));
++      kMemorySaverModeState, static_cast<int>(MemorySaverModeState::kEnabled));
+   registry->RegisterIntegerPref(
+       kMemorySaverModeAggressiveness,
+       static_cast<int>(MemorySaverModeAggressiveness::kMedium));
