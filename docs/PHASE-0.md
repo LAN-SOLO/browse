@@ -18,7 +18,7 @@ Prototyp.
 | 8 | Dev-Shell-Prototyp (Chromium-Snapshot + Defaults + uBO Lite, ohne Compile) | ✅ `scripts/dev-shell.sh` — Smoke lokal bestanden (Chromium 153.0.8006.0, uBO Lite via CDP geladen) |
 | 9 | CI: Lint + Config-Validierung + Smoke | ✅ `.github/workflows/ci.yml` |
 | 10 | Build-Runner | ✅ entschieden, revidiert auf serverlos (siehe `docs/BUILD-RUNNER.md`): erster Build macOS-arm64 lokal auf dem M1 Max + externe SSD; Linux/Windows in Phase 2 (`cloud-build.sh` liegt bereit) |
-| 11 | Erster voller Fetch + Build (macOS, lokal) | 🔄 Fetch auf `/Volumes/browse500GBdev` läuft (2026-08-14); Build wartet auf Xcode-Installation |
+| 11 | Erster voller Fetch + Build (macOS, lokal) | ✅ **2026-08-15: Chromium.app (360 MB) baut und startet** — `Chromium 152.0.7977.42`, 53.212 Schritte auf dem M1 Max, Checkout + Build auf der externen SSD |
 | 12 | Patches 001–003 (Branding, MV2, Store-Anonymisierung) | ⬜ blockiert durch 11 |
 
 ## Dev-Shell benutzen
@@ -33,6 +33,21 @@ Der Dev-Shell nutzt einen rohen Chromium-Snapshot (nicht Chrome): dort
 funktioniert `--load-extension` und der MV2-Stand entspricht Upstream. Er
 beantwortet die Phase-0-Kernfrage „wie fühlen sich die browse-Defaults an?"
 ohne stundenlangen Compile.
+
+## Befunde aus dem ersten vollen Build (2026-08-14/15, macOS arm64)
+
+1. **PGO braucht Profile im Checkout** — `is_official_build=true` schlägt ohne
+   sie fehl. Dev-Builds: `chrome_pgo_phase = 0`; Release-Builds aktivieren
+   stattdessen die gclient-Var `checkout_pgo_profiles` + runhooks.
+2. **Xcode 26 bündelt die Metal-Toolchain nicht mehr** — ANGLEs Shader-Schritt
+   scheitert sonst. `xcodebuild -downloadComponent MetalToolchain`; Achtung:
+   der erste Download meldete „Install Succeeded", blieb aber „uninstalled"
+   (Versions-Mismatch) — Status mit `xcodebuild -showComponent MetalToolchain`
+   prüfen, ggf. wiederholen.
+3. **Siso erkennt Agent-Umgebungen** (`CLAUDECODE`/`AI_AGENT` env) und schaltet
+   auf `--quiet` — für sichtbaren `[n/total]`-Fortschritt diese Variablen beim
+   Spawnen entfernen (`env -u`).
+4. `enable_nacl` existiert in M152 nicht mehr (NaCl entfernt).
 
 ## Befunde aus dem Prototyp-Aufbau (2026-08-13)
 
