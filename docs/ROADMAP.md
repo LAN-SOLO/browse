@@ -9,11 +9,18 @@
 
 - **Phase 0 abgeschlossen.** `browse.app` (152.0.7977.42) baut und läuft auf dem
   M1 Max (Checkout + Build auf externer SSD).
-- **Patches im Overlay** (`patches/`, `series`), alle am Binary verifiziert:
-  - `001` Branding (browse / LAN-SOLO UG / com.lan-solo.browse)
-  - `002` MV2 keep-alive — volles uBlock Origin läuft
-  - `003` X-Client-Data unterdrückt
-  - `004` Sleeping Tabs (Memory Saver) default an
+- **Patches 001–008 im Overlay** (`patches/`, `series`), alle am Binary
+  verifiziert: Branding, MV2 keep-alive, X-Client-Data unterdrückt, Sleeping
+  Tabs default an, uBlock Origin ab Werk aktiv, Default-Suche DuckDuckGo,
+  Safe Browsing ohne Realtime-Lookups, restliche Google-Hintergrunddienste
+  gekappt.
+- **Patch 009 (Widevine) blockiert** — braucht einen Lizenzvertrag mit
+  Google; Inhaber-Aufgabe, kein Code-Blocker.
+- **Patch 010 teilweise umgesetzt:** die Client-Hints-Hälfte
+  (`010-reduce-client-hints.patch`) ist geschrieben, angewendet und baut
+  gerade; Canvas-/Audio-Noise folgt getrennt als `011` (Begründung siehe
+  Backlog-Tabelle) — Patch-Minimalismus heißt auch: den riskanteren,
+  größeren Teil nicht an den kleinen, gut verifizierbaren Teil koppeln.
 - Dev-Shell, CI, Monitoring, Build-Pipeline stehen.
 
 ## Patch-Backlog (nach Aufwand & Wirkung sortiert)
@@ -26,8 +33,9 @@ Reihenfolge = empfohlene Umsetzung. „Größe" = grobe Patch-/Build-Komplexitä
 | 006 | **Default-Suchmaschine entgooglen** | S | mittel — Privacy-Haltung | Prebuilt-Suchanbieter-Liste: datenschutzfreundliche Default (z. B. DuckDuckGo), Google bleibt wählbar. `template_url_prewritten`/`search_engines`. |
 | 007 | **Safe Browsing ohne Google-Verlauf** | M | mittel-hoch — schützt ohne Datenabfluss | Standard-Safe-Browsing (lokale Listen-API v4) beibehalten, aber „Enhanced"/Realtime-Lookups aus; ggf. eigener/proxied Update-Endpoint. Vermeidet ungoogled-Fehler (Schutz ganz weg). |
 | 008 | **Restliche Google-Hintergrunddienste kappen** | M | mittel — Degoogling vervollständigen | Field-Trials/Variations-Fetch, Domain-Reliability, GCM/Push-Anmeldung, Translate-Backend gezielt deaktivieren (viele als GN-Arg/Feature-Flag statt Codepatch). |
-| 009 | **Widevine-DRM** | L | hoch für Streaming-Nutzer | Widevine-Lizenz + `enable_widevine=true`; erst nach Lizenzvertrag. Bis dahin ehrlich kommuniziert (Landing-Page-Disclaimer steht). |
-| 010 | **Fingerprinting-Schutz (Modus)** | L | hoch — Alleinstellung | Optionaler gehärteter Modus (Canvas/Audio-Noise, reduzierte Client Hints) nach Brave/Mullvad-Vorbild; als Setting togglebar, Standard = sinnvoll moderat. |
+| 009 | **Widevine-DRM** | L | hoch für Streaming-Nutzer | Widevine-Lizenz + `enable_widevine=true`; erst nach Lizenzvertrag. Bis dahin ehrlich kommuniziert (Landing-Page-Disclaimer steht). **Blockiert auf Inhaber (Lizenz).** |
+| 010 | **Fingerprinting-Schutz — Client Hints** | S | mittel — schließt eine kostenlose Fingerprint-Quelle | ✅ **umgesetzt** (`010-reduce-client-hints.patch`): `kUA`/`kUAMobile`/`kUAPlatform` sind die einzigen Client Hints, die Upstream ohne Site-Opt-in an jede Origin schickt (`blink::IsClientHintSentByDefault`, konsumiert von `content/browser/client_hints`' `IsClientHintEnabled`). Patch macht sie wie jeden High-Entropy-Hint opt-in-pflichtig (Accept-CH); `Save-Data` bleibt an, da nutzergewählte Präferenz statt Geräte-Fingerprint. Einzeiliger, gut umrissener Eingriff in eine Funktion — genau das Kaliber, das Patch-Minimalismus erlaubt. |
+| 011 | **Fingerprinting-Schutz — Canvas-/Audio-Noise (Modus)** | L | hoch — Alleinstellung, aber am schwersten korrekt zu bauen | Optionaler gehärteter Modus (Canvas/Audio-Noise, reduzierte Client Hints) nach Brave/Mullvad-Vorbild; als Setting togglebar, Standard = sinnvoll moderat. Bewusst von 010 getrennt: Noise-Injektion in Blinks Canvas2D/WebAudio ist ein deutlich größerer, riskanterer Eingriff (Regressionsgefahr für legitime Canvas-/Audio-Nutzung) als das Client-Hints-Predicate — verdient eigenen Entwurf + Review-Zyklus statt an den kleinen, bereits verifizierten Patch angehängt zu werden. |
 
 ## Phase 1 — Komfort & Sichtbares (nach Patches 005–008)
 

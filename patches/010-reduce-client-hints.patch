@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Batman <batman@Batman.local>
+Date: Sun, 16 Aug 2026 16:16:41 +0200
+Subject: [PATCH] browse patch 010: stop sending low-entropy UA client hints by
+ default
+
+kUA/kUAMobile/kUAPlatform are the User-Agent Client Hints spec's
+low-entropy set and are exempt from the opt-in every other hint
+needs, so upstream sends them to every origin without the site ever
+asking. That is a free, no-permission fingerprint bit. Origins that
+genuinely need them still get them exactly like every high-entropy
+hint already works: request via Accept-CH, honored regardless of this
+default by content/browser/client_hints's IsClientHintEnabled(). Save-
+Data stays default-on since it reflects the user's own Data Saver
+choice, not a device fingerprint.
+---
+ .../blink/common/client_hints/client_hints.cc       | 13 ++++++++++---
+ 1 file changed, 10 insertions(+), 3 deletions(-)
+
+diff --git a/third_party/blink/common/client_hints/client_hints.cc b/third_party/blink/common/client_hints/client_hints.cc
+index ab8af78c7a483..02fecda0f6777 100644
+--- a/third_party/blink/common/client_hints/client_hints.cc
++++ b/third_party/blink/common/client_hints/client_hints.cc
+@@ -22,10 +22,17 @@ namespace blink {
+ 
+ bool IsClientHintSentByDefault(network::mojom::WebClientHintsType type) {
+   switch (type) {
++    // browse patch 010: kUA/kUAMobile/kUAPlatform used to go out to every
++    // origin without the site ever asking — the User-Agent Client Hints spec
++    // calls these three "low-entropy" and exempts them from the opt-in every
++    // other hint requires. That's still a free, no-permission fingerprint
++    // bit. Origins that genuinely need them (responsive serving, bot
++    // detection) get them the same way every high-entropy hint already
++    // works: request via Accept-CH, which content/browser/client_hints
++    // honors regardless of this default (see IsClientHintEnabled). Save-Data
++    // stays default-on — it reflects the user's own Data Saver choice, not a
++    // device fingerprint.
+     case network::mojom::WebClientHintsType::kSaveData:
+-    case network::mojom::WebClientHintsType::kUA:
+-    case network::mojom::WebClientHintsType::kUAMobile:
+-    case network::mojom::WebClientHintsType::kUAPlatform:
+       return true;
+     default:
+       return false;
+-- 
+2.52.0
+

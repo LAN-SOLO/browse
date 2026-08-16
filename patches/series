@@ -6,3 +6,4 @@
 006-default-search-ddg.patch
 007-safebrowsing-no-realtime.patch
 008-cut-google-services.patch
+010-reduce-client-hints.patch

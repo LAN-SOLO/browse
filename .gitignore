@@ -6,5 +6,8 @@
 # local-only monitoring dashboard (personal, stays off git)
 /monitor/
 
+# scratch build logs (local, reproducible from scripts/build.sh)
+/.buildlogs/
+
 .DS_Store
 node_modules
