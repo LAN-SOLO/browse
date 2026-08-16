@@ -4,3 +4,4 @@
 004-sleeping-tabs-default.patch
 005-preinstall-extensions.patch
 006-default-search-ddg.patch
+007-safebrowsing-no-realtime.patch

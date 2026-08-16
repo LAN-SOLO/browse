@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Batman <batman@Batman.local>
+Date: Sun, 16 Aug 2026 07:20:46 +0200
+Subject: [PATCH] browse patch 007: safe browsing without per-navigation Google
+ lookups
+
+---
+ .../safe_browsing/core/browser/realtime/policy_engine.cc  | 8 +++++++-
+ .../common/hashprefix_realtime/hash_realtime_utils.cc     | 6 ++++++
+ 2 files changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/components/safe_browsing/core/browser/realtime/policy_engine.cc b/components/safe_browsing/core/browser/realtime/policy_engine.cc
+index d951922618e6b..35c7a9e232639 100644
+--- a/components/safe_browsing/core/browser/realtime/policy_engine.cc
++++ b/components/safe_browsing/core/browser/realtime/policy_engine.cc
+@@ -74,7 +74,13 @@ bool RealTimePolicyEngine::CanPerformFullURLLookup(
+     return false;
+   }
+ 
+-  return HasPrefPermissionsToPerformFullURLLookup(pref_service);
++  // browse patch 007: never perform full-URL real-time Safe Browsing lookups.
++  // These send the full URL of the page you are visiting to Google (an
++  // Enhanced Protection feature). browse keeps Safe Browsing protection via
++  // the locally-downloaded lists, but your browsing history is never phoned
++  // home. HasPrefPermissionsToPerformFullURLLookup() stays declared for
++  // callers/tests; we simply never grant the lookup.
++  return false;
+ }
+ 
+ // static
+diff --git a/components/safe_browsing/core/common/hashprefix_realtime/hash_realtime_utils.cc b/components/safe_browsing/core/common/hashprefix_realtime/hash_realtime_utils.cc
+index c0087a062543a..08d6feee98032 100644
+--- a/components/safe_browsing/core/common/hashprefix_realtime/hash_realtime_utils.cc
++++ b/components/safe_browsing/core/common/hashprefix_realtime/hash_realtime_utils.cc
+@@ -176,6 +176,12 @@ HashRealTimeSelection DetermineHashRealTimeSelection(
+         "SafeBrowsing.HPRT.Ineligible.IneligibleForLocation",
+         !IsHashRealTimeLookupEligibleInLocation(latest_country));
+   }
++  // browse patch 007: never do hash-prefix real-time lookups either. Standard
++  // protection relies purely on the locally-downloaded Safe Browsing lists, so
++  // no per-navigation query (not even a privacy-preserving OHTTP one) leaves
++  // the device. Forced here rather than at the top to keep the eligibility
++  // histograms above intact and avoid dead code.
++  can_do_lookup = false;
+   return can_do_lookup
+              ?
+ #if BUILDFLAG(IS_ANDROID)
