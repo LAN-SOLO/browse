@@ -16,4 +16,6 @@ DEST="$APP/Contents/Resources/External Extensions"
 mkdir -p "$DEST"
 # only the id-json manifests and their referenced crx files, not the README
 find "$SRC" -maxdepth 1 \( -name '*.json' -o -name '*.crx' \) -exec cp {} "$DEST/" \;
-echo "stage-extensions: staged $(ls "$DEST" | grep -c '\.json$') extension(s) into the bundle"
+shopt -s nullglob
+manifests=("$DEST"/*.json)
+echo "stage-extensions: staged ${#manifests[@]} extension(s) into the bundle"
