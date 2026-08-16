@@ -16,11 +16,11 @@
   gekappt.
 - **Patch 009 (Widevine) blockiert** — braucht einen Lizenzvertrag mit
   Google; Inhaber-Aufgabe, kein Code-Blocker.
-- **Patch 010 teilweise umgesetzt:** die Client-Hints-Hälfte
-  (`010-reduce-client-hints.patch`) ist geschrieben, angewendet und baut
-  gerade; Canvas-/Audio-Noise folgt getrennt als `011` (Begründung siehe
-  Backlog-Tabelle) — Patch-Minimalismus heißt auch: den riskanteren,
-  größeren Teil nicht an den kleinen, gut verifizierbaren Teil koppeln.
+- **Patch 010 (Client Hints) umgesetzt & verifiziert.**
+- **Patch 011 (Canvas-Noise für `getImageData`) umgesetzt & verifiziert.**
+  toDataURL()/toBlob() (separater Encode-Pfad) und WebAudio folgen getrennt
+  als `012`/`013` — Patch-Minimalismus heißt auch: den riskanteren, größeren
+  Teil nicht an einen kleinen, gut verifizierbaren Teil koppeln.
 - Dev-Shell, CI, Monitoring, Build-Pipeline stehen.
 
 ## Patch-Backlog (nach Aufwand & Wirkung sortiert)
@@ -35,7 +35,10 @@ Reihenfolge = empfohlene Umsetzung. „Größe" = grobe Patch-/Build-Komplexitä
 | 008 | **Restliche Google-Hintergrunddienste kappen** | M | mittel — Degoogling vervollständigen | Field-Trials/Variations-Fetch, Domain-Reliability, GCM/Push-Anmeldung, Translate-Backend gezielt deaktivieren (viele als GN-Arg/Feature-Flag statt Codepatch). |
 | 009 | **Widevine-DRM** | L | hoch für Streaming-Nutzer | Widevine-Lizenz + `enable_widevine=true`; erst nach Lizenzvertrag. Bis dahin ehrlich kommuniziert (Landing-Page-Disclaimer steht). **Blockiert auf Inhaber (Lizenz).** |
 | 010 | **Fingerprinting-Schutz — Client Hints** | S | mittel — schließt eine kostenlose Fingerprint-Quelle | ✅ **umgesetzt** (`010-reduce-client-hints.patch`): `kUA`/`kUAMobile`/`kUAPlatform` sind die einzigen Client Hints, die Upstream ohne Site-Opt-in an jede Origin schickt (`blink::IsClientHintSentByDefault`, konsumiert von `content/browser/client_hints`' `IsClientHintEnabled`). Patch macht sie wie jeden High-Entropy-Hint opt-in-pflichtig (Accept-CH); `Save-Data` bleibt an, da nutzergewählte Präferenz statt Geräte-Fingerprint. Einzeiliger, gut umrissener Eingriff in eine Funktion — genau das Kaliber, das Patch-Minimalismus erlaubt. |
-| 011 | **Fingerprinting-Schutz — Canvas-/Audio-Noise (Modus)** | L | hoch — Alleinstellung, aber am schwersten korrekt zu bauen | Optionaler gehärteter Modus (Canvas/Audio-Noise, reduzierte Client Hints) nach Brave/Mullvad-Vorbild; als Setting togglebar, Standard = sinnvoll moderat. Bewusst von 010 getrennt: Noise-Injektion in Blinks Canvas2D/WebAudio ist ein deutlich größerer, riskanterer Eingriff (Regressionsgefahr für legitime Canvas-/Audio-Nutzung) als das Client-Hints-Predicate — verdient eigenen Entwurf + Review-Zyklus statt an den kleinen, bereits verifizierten Patch angehängt zu werden. |
+| 011 | **Fingerprinting-Schutz — Canvas-Noise (`getImageData`)** | M | hoch — deckt den meistgenutzten Canvas-Fingerprint-Vektor | ✅ **umgesetzt** (`011-canvas-noise.patch`): `BaseRenderingContext2D::getImageDataInternal` (gemeinsame Basis für `<canvas>` UND `OffscreenCanvas`) perturbiert nach erfolgreichem `readPixels` ~1 von 8 Pixeln um ±1 auf einem RGB-Kanal (nie Alpha). Seed = Prozess-Zufallssalt XOR `base::Hash(Origin)` — stabil pro Origin für die Prozesslaufzeit, unterschiedlich zwischen Origins, neu nach Neustart. Verifiziert per CDP gegen das gebaute Binary: gleiche Origin/zweiter Read → bytegleich; zwei Origins, identische Zeichnung → unterschiedlicher Pixel-Checksum, Mittelwert-Differenz 0.0008 (unsichtbar). Musste auf `gfx::SkPixmapToWritableSpan` umgestellt werden — rohe Pointer-Arithmetik verletzt Chromiums `-Wunsafe-buffer-usage`. |
+| 012 | **Fingerprinting-Schutz — `toDataURL`/`toBlob`-Noise** | M | mittel-hoch — zweiter klassischer Canvas-Fingerprint-Vektor | `HTMLCanvasElement::ToDataURLInternal`/`toBlob` lesen über `Snapshot()` direkt aus dem `StaticBitmapImage`, nicht über `getImageDataInternal` — eigener Injektionspunkt nötig, kann aber dieselben Noise-Helfer aus Patch 011 wiederverwenden. |
+| 013 | **Fingerprinting-Schutz — WebAudio-Noise** | L | mittel — dritter, seltener genutzter Vektor | `AudioBuffer::getChannelData`/`copyFromChannel` analog perturbieren; eigener Entwurf, da anderer Datentyp (Float32) und andere Regressionsfläche (Audio-Verarbeitung, nicht Bild). |
+| 014 | **Fingerprinting-Schutz — UI-Toggle ("Modus")** | S | UX — macht 011–013 abschaltbar | Bisher greifen 011 fest (kein Opt-out); ein Setting + Pref bündelt alle drei, Standard = an. Erst sinnvoll, wenn 012/013 stehen. |
 
 ## Phase 1 — Komfort & Sichtbares (nach Patches 005–008)
 
