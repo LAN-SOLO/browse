@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Batman <batman@Batman.local>
+Date: Sun, 16 Aug 2026 07:36:20 +0200
+Subject: [PATCH] browse patch 008: cut variations fetch and domain reliability
+
+---
+ chrome/browser/domain_reliability/service_factory.cc | 5 ++++-
+ components/variations/service/variations_service.cc  | 6 +++++-
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/chrome/browser/domain_reliability/service_factory.cc b/chrome/browser/domain_reliability/service_factory.cc
+index e3f85943ed5b9..cf304c120f3ca 100644
+--- a/chrome/browser/domain_reliability/service_factory.cc
++++ b/chrome/browser/domain_reliability/service_factory.cc
+@@ -13,7 +13,10 @@ namespace domain_reliability {
+ namespace {
+ 
+ // If Domain Reliability is enabled in the absence of a flag or field trial.
+-const bool kDefaultEnabled = true;
++// browse patch 008: off by default — Domain Reliability reports network errors
++// to Google. Disabled metrics already gate it off; this makes it explicit and
++// independent. An explicit --enable-domain-reliability still turns it on.
++const bool kDefaultEnabled = false;
+ 
+ // The name and value of the field trial to turn Domain Reliability on.
+ const char kFieldTrialName[] = "DomRel-Enable";
+diff --git a/components/variations/service/variations_service.cc b/components/variations/service/variations_service.cc
+index c2cc6866eb756..5cf5dc0ba27b6 100644
+--- a/components/variations/service/variations_service.cc
++++ b/components/variations/service/variations_service.cc
+@@ -655,7 +655,11 @@ void VariationsService::EnableFetchForTesting() {
+ }
+ 
+ void VariationsService::DoActualFetch() {
+-  DoFetchFromURL(variations_server_url_, false);
++  // browse patch 008: never fetch the variations (field-trial) seed from
++  // Google. This is the single periodic entry point for variations requests;
++  // making it a no-op stops the startup and in-session field-trial fetch.
++  // browse ships deterministic defaults and no seed. DoFetchFromURL() stays
++  // defined and is still referenced by the (now unreachable) HTTP-retry path.
+ }
+ 
+ const std::string& VariationsService::GetLatestSerialNumber() {
