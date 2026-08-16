@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Batman <batman@Batman.local>
+Date: Sun, 16 Aug 2026 07:01:31 +0200
+Subject: [PATCH] browse patch 006: default search engine DuckDuckGo, Google
+ still available
+
+---
+ .../template_url_prepopulate_data.cc          | 23 ++++++++++++++++---
+ 1 file changed, 20 insertions(+), 3 deletions(-)
+
+diff --git a/components/search_engines/template_url_prepopulate_data.cc b/components/search_engines/template_url_prepopulate_data.cc
+index ac35ec257779f..46c3b16239dff 100644
+--- a/components/search_engines/template_url_prepopulate_data.cc
++++ b/components/search_engines/template_url_prepopulate_data.cc
+@@ -185,8 +185,22 @@ std::vector<std::unique_ptr<TemplateURLData>> GetPrepopulatedEngines(
+     return t_urls;
+   }
+ 
+-  return base::ToVector(regional_prepopulated_engines,
+-                        &PrepopulatedEngineToTemplateURLData);
++  t_urls = base::ToVector(regional_prepopulated_engines,
++                          &PrepopulatedEngineToTemplateURLData);
++
++  // browse patch 006: default to DuckDuckGo instead of Google. The engine at
++  // index 0 becomes the out-of-box default search provider; every other
++  // engine (Google included) stays in the list and one click away in
++  // Settings. If the region's list already leads with DuckDuckGo, or doesn't
++  // include it at all, this is a no-op.
++  auto ddg = std::ranges::find_if(t_urls, [](const auto& e) {
++    return e && e->prepopulate_id == duckduckgo.id;
++  });
++  if (ddg != t_urls.end() && ddg != t_urls.begin()) {
++    std::rotate(t_urls.begin(), ddg, ddg + 1);
++  }
++
++  return t_urls;
+ }
+ 
+ std::unique_ptr<TemplateURLData> GetPrepopulatedEngine(
+@@ -278,8 +292,11 @@ std::unique_ptr<TemplateURLData> GetPrepopulatedFallbackSearch(
+     PrefService& prefs,
+     const std::vector<raw_ptr<const PrepopulatedEngine>>&
+         regional_prepopulated_engines) {
++  // browse patch 006: fall back to DuckDuckGo rather than Google when the
++  // regional list has no explicit match. use_first_as_fallback still applies,
++  // and GetPrepopulatedEngines() now puts DuckDuckGo first anyway.
+   return FindPrepopulatedEngineInternal(prefs, regional_prepopulated_engines,
+-                                        google.id,
++                                        duckduckgo.id,
+                                         /*use_first_as_fallback=*/true);
+ }
+ 

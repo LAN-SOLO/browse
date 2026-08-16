@@ -3,3 +3,4 @@
 003-anonymize-client-data.patch
 004-sleeping-tabs-default.patch
 005-preinstall-extensions.patch
+006-default-search-ddg.patch
