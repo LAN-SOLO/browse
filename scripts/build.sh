@@ -32,4 +32,10 @@ echo "build: gn gen $OUT"
 echo "build: autoninja chrome ($PLATFORM)"
 (cd "$SRC" && autoninja -C "$OUT" chrome)
 
+# Stage preinstalled extensions into the freshly built bundle (patch 005).
+# macOS produces browse.app; other platforms put extensions next to the binary.
+if [[ "$PLATFORM" == "mac" && -d "$SRC/$OUT/browse.app" ]]; then
+  "$ROOT/scripts/stage-extensions.sh" "$SRC/$OUT/browse.app" || echo "build: WARNING — extension staging failed" >&2
+fi
+
 echo "build: done — binary in chromium/src/$OUT"

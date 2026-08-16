@@ -2,3 +2,4 @@
 002-mv2-keepalive.patch
 003-anonymize-client-data.patch
 004-sleeping-tabs-default.patch
+005-preinstall-extensions.patch
