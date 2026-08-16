@@ -1,0 +1,177 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Batman <batman@Batman.local>
+Date: Sun, 16 Aug 2026 23:42:16 +0200
+Subject: [PATCH] browse patch 014: chrome://flags toggle for fingerprinting
+ protection
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Master on/off switch for the canvas/audio noise patches (011-013),
+exposed at chrome://flags as "Fingerprinting protection" (internal
+name: fingerprinting-protection). Enabled by default.
+
+The base::Feature lives in third_party/blink/public/common/features.h
+(blink::features::kBrowseFingerprintingProtection), not in
+canvas_noise.h alongside the noise functions it gates: chrome/browser
+code (about_flags.cc, which needs to reference the feature to build
+the flags-page entry) cannot depend on third_party/blink/renderer —
+that's Blink's renderer-process-internal implementation layer.
+chrome/browser/DEPS allows +third_party/blink/public/common but not
++third_party/blink/renderer, and blink/public/common is exactly the
+sanctioned cross-process-safe boundary other blink::features entries
+already use for the same reason (e.g. kJXLImageFormat).
+
+ApplyCanvasReadbackNoise() and ApplyAudioReadbackNoise() each check
+the feature once, so all four call sites (getImageData, toDataURL/
+toBlob via MakePrivateCanvasSnapshotAndApplyNoise, getChannelData/
+copyFromChannel) turn off together when the flag is disabled — no
+partial state.
+
+Added a chrome/browser/flag-metadata.json entry (required for every
+chrome://flags row); expiry_milestone set generously far out (300)
+since this is a permanent fork feature, not an experiment meant to
+graduate or get cleaned up on Google's schedule.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+---
+ chrome/browser/about_flags.cc                         |  7 +++++++
+ chrome/browser/flag-metadata.json                     |  5 +++++
+ chrome/browser/flag_descriptions.h                    | 11 +++++++++++
+ third_party/blink/common/features.cc                  |  5 +++++
+ third_party/blink/public/common/features.h            | 11 +++++++++++
+ .../blink/renderer/platform/graphics/canvas_noise.cc  |  8 ++++++--
+ 6 files changed, 45 insertions(+), 2 deletions(-)
+
+diff --git a/chrome/browser/about_flags.cc b/chrome/browser/about_flags.cc
+index cf560fad6d2a2..95da216eb5d68 100644
+--- a/chrome/browser/about_flags.cc
++++ b/chrome/browser/about_flags.cc
+@@ -11605,6 +11605,13 @@ const FeatureEntry kFeatureEntries[] = {
+      flag_descriptions::kFieldClassificationModelCachingDescription, kOsAll,
+      FEATURE_VALUE_TYPE(autofill::features::kFieldClassificationModelCaching)},
+ 
++    // browse patch 014: master toggle for the canvas/audio fingerprinting
++    // noise added in patches 011-013.
++    {"fingerprinting-protection",
++     flag_descriptions::kBrowseFingerprintingProtectionName,
++     flag_descriptions::kBrowseFingerprintingProtectionDescription, kOsAll,
++     FEATURE_VALUE_TYPE(blink::features::kBrowseFingerprintingProtection)},
++
+     {"disable-autofill-strike-system",
+      flag_descriptions::kDisableAutofillStrikeSystemName,
+      flag_descriptions::kDisableAutofillStrikeSystemDescription, kOsAll,
+diff --git a/chrome/browser/flag-metadata.json b/chrome/browser/flag-metadata.json
+index d4d394dab2e4b..f963bcfd254db 100644
+--- a/chrome/browser/flag-metadata.json
++++ b/chrome/browser/flag-metadata.json
+@@ -5027,6 +5027,11 @@
+     "owners": [ "kazinova@google.com", "lamort@google.com", "chrome-password-manager-team@google.com" ],
+     "expiry_milestone": 146
+   },
++  {
++    "name": "fingerprinting-protection",
++    "owners": [ "//third_party/blink/renderer/platform/graphics/OWNERS" ],
++    "expiry_milestone": 300
++  },
+   {
+     "name": "file-handling-icons",
+     "owners": [ "dmurph@chromium.org", "mgiuca@chromium.org", "cmp@chromium.org" ],
+diff --git a/chrome/browser/flag_descriptions.h b/chrome/browser/flag_descriptions.h
+index 17f08f38d231b..24f8c25e80cbb 100644
+--- a/chrome/browser/flag_descriptions.h
++++ b/chrome/browser/flag_descriptions.h
+@@ -587,6 +587,17 @@ inline constexpr char kFieldClassificationModelCachingDescription[] =
+     "When enabled, the field classification model uses runtime caching to not "
+     "run models on the same inputs multiple times.";
+ 
++// browse patch 014: master toggle for patches 011-013.
++inline constexpr char kBrowseFingerprintingProtectionName[] =
++    "Fingerprinting protection";
++inline constexpr char kBrowseFingerprintingProtectionDescription[] =
++    "Perturbs canvas (getImageData, toDataURL, toBlob) and Web Audio "
++    "(AudioBuffer.getChannelData/copyFromChannel) readouts with a small, "
++    "origin-stable amount of noise, invisible to the eye and inaudible, so "
++    "the same script sees a different fingerprint on different sites. "
++    "Enabled by default; disabling this reverts those APIs to unmodified "
++    "Chromium behavior.";
++
+ inline constexpr char kHdrAgtmName[] = "Adaptive global tone mapping";
+ inline constexpr char kHdrAgtmDescription[] =
+     "Enables parsing and rendering of adaptive global tone mapping (AGTM) aka "
+diff --git a/third_party/blink/common/features.cc b/third_party/blink/common/features.cc
+index 55913cbf814ac..c0418adc2b041 100644
+--- a/third_party/blink/common/features.cc
++++ b/third_party/blink/common/features.cc
+@@ -74,6 +74,11 @@ BASE_FEATURE(kAndroidSystemFontPrewarming, base::FEATURE_DISABLED_BY_DEFAULT);
+ // Avoids copying ResourceRequest::TrustedParams when possible.
+ BASE_FEATURE(kAvoidTrustedParamsCopies, base::FEATURE_ENABLED_BY_DEFAULT);
+ 
++// browse patch 014: see the declaration in features.h for the full
++// rationale.
++BASE_FEATURE(kBrowseFingerprintingProtection,
++            base::FEATURE_ENABLED_BY_DEFAULT);
++
+ // When enabled, fast-exits the mixed-content checks for secure URLs.
+ BASE_FEATURE(kOptimizeMixedContentChecks, base::FEATURE_ENABLED_BY_DEFAULT);
+ 
+diff --git a/third_party/blink/public/common/features.h b/third_party/blink/public/common/features.h
+index 9f03bd6a1c619..9958430c49bb1 100644
+--- a/third_party/blink/public/common/features.h
++++ b/third_party/blink/public/common/features.h
+@@ -48,6 +48,17 @@ BLINK_COMMON_EXPORT BASE_DECLARE_FEATURE(kAudioWorkletJSDenormalEnabler);
+ // Avoids copying ResourceRequest::TrustedParams when possible.
+ BLINK_COMMON_EXPORT BASE_DECLARE_FEATURE(kAvoidTrustedParamsCopies);
+ 
++// browse patch 014: master on/off switch for the canvas/audio
++// fingerprinting-noise patches (011-013) in
++// third_party/blink/renderer/platform/graphics/canvas_noise.cc. Declared
++// here (blink::features, the public/browser-visible layer) rather than in
++// canvas_noise.h itself, since chrome/browser/about_flags.cc — which needs
++// to reference it to expose the chrome://flags entry — cannot depend on
++// third_party/blink/renderer (renderer-process-internal; see
++// chrome/browser/DEPS, which allows +third_party/blink/public/common but
++// not +third_party/blink/renderer).
++BLINK_COMMON_EXPORT BASE_DECLARE_FEATURE(kBrowseFingerprintingProtection);
++
+ // Optimizes mixed content checks by moving InWhichFrameIsContentMixed below
+ // fast-exits and caching flag state.
+ BLINK_COMMON_EXPORT BASE_DECLARE_FEATURE(kOptimizeMixedContentChecks);
+diff --git a/third_party/blink/renderer/platform/graphics/canvas_noise.cc b/third_party/blink/renderer/platform/graphics/canvas_noise.cc
+index 5b7234681a941..57995c563ad64 100644
+--- a/third_party/blink/renderer/platform/graphics/canvas_noise.cc
++++ b/third_party/blink/renderer/platform/graphics/canvas_noise.cc
+@@ -32,8 +32,10 @@
+ #include <cstdint>
+ 
+ #include "base/containers/span.h"
++#include "base/feature_list.h"
+ #include "base/hash/hash.h"
+ #include "base/rand_util.h"
++#include "third_party/blink/public/common/features.h"
+ #include "third_party/blink/renderer/platform/weborigin/security_origin.h"
+ #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+ #include "third_party/skia/include/core/SkData.h"
+@@ -64,7 +66,8 @@ uint64_t NextCanvasNoiseValue(uint64_t& state) {
+ 
+ void ApplyCanvasReadbackNoise(const SkPixmap& pixmap,
+                               const SecurityOrigin* origin) {
+-  if (!origin) {
++  if (!origin ||
++      !base::FeatureList::IsEnabled(features::kBrowseFingerprintingProtection)) {
+     return;
+   }
+   const int width = pixmap.width();
+@@ -146,7 +149,8 @@ void MakePrivateCanvasSnapshotAndApplyNoise(sk_sp<SkImage>& image,
+ void ApplyAudioReadbackNoise(base::span<float> samples,
+                              unsigned channel_index,
+                              const SecurityOrigin* origin) {
+-  if (!origin || samples.empty()) {
++  if (!origin || samples.empty() ||
++      !base::FeatureList::IsEnabled(features::kBrowseFingerprintingProtection)) {
+     return;
+   }
+   uint64_t state =
+-- 
+2.52.0
+

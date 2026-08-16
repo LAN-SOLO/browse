@@ -10,3 +10,4 @@
 011-canvas-noise.patch
 012-canvas-export-noise.patch
 013-audio-noise.patch
+014-fingerprinting-toggle.patch

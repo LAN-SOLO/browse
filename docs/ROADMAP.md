@@ -23,17 +23,23 @@
   extrahiert (ein Ort, eine Review).
 - **Patch 013 (WebAudio-Noise für `AudioBuffer`) umgesetzt & verifiziert.**
   Dritter und letzter der drei klassischen Fingerprint-Vektoren (Canvas ×2 +
-  Audio) geschlossen. UI-Toggle für den gesamten Modus folgt als `014`.
+  Audio) geschlossen.
+- **Patch 014 (chrome://flags-Toggle „Fingerprinting protection") umgesetzt
+  & verifiziert.** Alle vier Injektionspunkte (getImageData, toDataURL/
+  toBlob, getChannelData/copyFromChannel) hängen an einem einzigen
+  `base::Feature`, standardmäßig an. Damit ist der komplette
+  Fingerprinting-Schutz-Block (011–014) fertig.
 - Dev-Shell, CI, Monitoring, Build-Pipeline stehen.
 - **Bekannte Einschränkung:** `apply-patches.sh`s Idempotenz-Check
   (`git apply --check --reverse`) kann sich irren, wenn ein späterer Patch
   dieselbe Stelle wie ein früherer verändert (erstmals bei 011→012, dann
-  wieder bei 013 wegen `canvas_noise.{h,cc}`) — er prüft, ob JEDER Patch
-  für sich allein reversibel ist, nicht ob die kumulative Kette angewendet
-  wurde. Betrifft nur die Selbstprüfung gegen einen bereits vollständig
-  gepatchten Checkout, nicht die eigentliche Anwendung auf einen frischen
-  Checkout (dort zuverlässig gegengetestet: 011→012→013 nacheinander aus
-  dem echten Vor-011-Zustand angewendet → bytegleich zu HEAD).
+  wieder bei 013 und 014 wegen `canvas_noise.{h,cc}`) — er prüft, ob JEDER
+  Patch für sich allein reversibel ist, nicht ob die kumulative Kette
+  angewendet wurde. Betrifft nur die Selbstprüfung gegen einen bereits
+  vollständig gepatchten Checkout, nicht die eigentliche Anwendung auf
+  einen frischen Checkout (dort zuverlässig gegengetestet: 011→012→013→014
+  nacheinander aus dem echten Vor-011-Zustand angewendet → bytegleich zu
+  HEAD).
 
 ## Patch-Backlog (nach Aufwand & Wirkung sortiert)
 
@@ -50,7 +56,7 @@ Reihenfolge = empfohlene Umsetzung. „Größe" = grobe Patch-/Build-Komplexitä
 | 011 | **Fingerprinting-Schutz — Canvas-Noise (`getImageData`)** | M | hoch — deckt den meistgenutzten Canvas-Fingerprint-Vektor | ✅ **umgesetzt** (`011-canvas-noise.patch`): `BaseRenderingContext2D::getImageDataInternal` (gemeinsame Basis für `<canvas>` UND `OffscreenCanvas`) perturbiert nach erfolgreichem `readPixels` ~1 von 8 Pixeln um ±1 auf einem RGB-Kanal (nie Alpha). Seed = Prozess-Zufallssalt XOR `base::Hash(Origin)` — stabil pro Origin für die Prozesslaufzeit, unterschiedlich zwischen Origins, neu nach Neustart. Verifiziert per CDP gegen das gebaute Binary: gleiche Origin/zweiter Read → bytegleich; zwei Origins, identische Zeichnung → unterschiedlicher Pixel-Checksum, Mittelwert-Differenz 0.0008 (unsichtbar). Musste auf `gfx::SkPixmapToWritableSpan` umgestellt werden — rohe Pointer-Arithmetik verletzt Chromiums `-Wunsafe-buffer-usage`. |
 | 012 | **Fingerprinting-Schutz — `toDataURL`/`toBlob`-Noise** | M | mittel-hoch — zweiter und dritter klassischer Canvas-Fingerprint-Vektor | ✅ **umgesetzt** (`012-canvas-export-noise.patch`): `toDataURL`/`toBlob` (inkl. `OffscreenCanvas.convertToBlob`, gleiche `CanvasAsyncBlobCreator`-Klasse) lesen ihre Pixel über `SkImage::peekPixels()` — Zero-Copy-Sicht auf Speicher, den das Bild noch selbst besitzt (evtl. geteilt mit dem laufenden Canvas-Rendering). Neuer Helfer `MakePrivateCanvasSnapshotAndApplyNoise` erzwingt per `readPixels()` erst eine private Kopie, bevor gerauscht wird — sonst Korruptionsrisiko für geteilte Bilder. `ImageDataBuffer::ApplyOriginNoise()` ist bewusst opt-in: `ImageDataBuffer` wird auch von DevTools-Audits, Accessibility und Video-Poster-Capture genutzt, die keine JS-exponierte Fingerprint-Fläche sind. Verifiziert per CDP: `toDataURL`/`toBlob` je stabil pro Origin, unterschiedlich zwischen Origins (auch unterschiedliche PNG-Byte-Länge); `getImageData`-Regression nach dem Refactor geprüft — funktioniert weiter. |
 | 013 | **Fingerprinting-Schutz — WebAudio-Noise** | L | mittel — dritter, seltener genutzter Vektor | ✅ **umgesetzt** (`013-audio-noise.patch`): `AudioBuffer::getChannelData`/`copyFromChannel` (das klassische OfflineAudioContext-Rezept: Oszillator + Dynamics Compressor rendern, Samples zurücklesen, hashen). Anders als Canvas-Pixel ist `getChannelData()` laut Spezifikation eine **live, veränderbare** Sicht auf den Puffer — Rauschen wird deshalb nur **einmal pro Kanal** angewendet (`channel_noise_applied_`-Tracking), sonst würde es bei wiederholten Reads akkumulieren. Amplitude ±2e-7 auf ~1 von 8 Samples — eine Größenordnung unter dem 16-Bit-Quantisierungsrauschen, weit unter jeder Hörbarkeitsschwelle. Brauchte `CallWith=ScriptState` in der IDL, um an die aufrufende Origin zu kommen (`AudioBuffer` speichert selbst keinen Execution-Context). Verifiziert per CDP: stabil bei wiederholtem Read, `copyFromChannel` stimmt exakt mit `getChannelData` überein, unterschiedliche Origins → unterschiedliche Werte bei identischem Rendering. `AnalyserNode`-Frequenzanalyse (zweiter, selteneren Audio-Fingerprint-Vektor) bewusst nicht mit abgedeckt — eigener Follow-up-Patch bei Bedarf. |
-| 014 | **Fingerprinting-Schutz — UI-Toggle ("Modus")** | S | UX — macht 011–013 abschaltbar | 011–013 greifen bisher fest (kein Opt-out); ein Setting + Pref bündelt alle drei, Standard = an. 011–013 stehen jetzt alle — als Nächstes dran. |
+| 014 | **Fingerprinting-Schutz — chrome://flags-Toggle** | S | UX — macht 011–013 abschaltbar | ✅ **umgesetzt** (`014-fingerprinting-toggle.patch`): `blink::features::kBrowseFingerprintingProtection`, standardmäßig an, als `chrome://flags`-Eintrag „Fingerprinting protection" (`fingerprinting-protection`). Musste in `blink/public/common/features.h` statt in `canvas_noise.h` selbst liegen — `chrome/browser/about_flags.cc` (Browser-Prozess) darf laut `chrome/browser/DEPS` nicht auf `blink/renderer/...` (Renderer-Prozess-intern) zugreifen, nur auf `blink/public/common`. `ApplyCanvasReadbackNoise`/`ApplyAudioReadbackNoise` prüfen das Feature je einmal, wodurch alle vier Aufrufstellen gemeinsam abschalten. Verifiziert per CDP: mit `--disable-features=BrowseFingerprintingProtection` liefern zwei Origins bei identischer Zeichnung/identischem Audio-Rendering bytegleiche Ergebnisse (Δmean 0 statt 0.0008/0.0001) — der Toggle schaltet das Rauschen nachweislich vollständig ab. |
 
 ## Phase 1 — Komfort & Sichtbares (nach Patches 005–008)
 
