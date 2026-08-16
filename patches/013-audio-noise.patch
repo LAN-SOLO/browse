@@ -1,0 +1,334 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Batman <batman@Batman.local>
+Date: Sun, 16 Aug 2026 23:04:05 +0200
+Subject: [PATCH] browse patch 013: noise AudioBuffer
+ getChannelData()/copyFromChannel()
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The other classic browser fingerprinting technique alongside canvas:
+render a short signal through an OfflineAudioContext (oscillator +
+dynamics compressor is the common recipe), read the samples back via
+getChannelData() or copyFromChannel(), hash them. Rendering is
+bit-identical across machines sharing the same audio DSP
+implementation, so that hash is a stable cross-site tracking id — the
+audio equivalent of the canvas fingerprint patches 011/012 already
+cover.
+
+Unlike canvas pixels, getChannelData() intentionally returns a LIVE,
+writable view onto the AudioBuffer's own storage (mutating it is
+spec'd, legitimate behavior for real audio processing) rather than a
+snapshot — so noise can't be reapplied on every call the way canvas's
+getImageData is, or it would silently drift on repeated reads.
+AudioBuffer::EnsureChannelNoised() applies ApplyAudioReadbackNoise()
+at most once per channel (tracked via channel_noise_applied_), the
+first time either getChannelData() or copyFromChannel() touches that
+channel — both call it directly since copyFromChannel() reads
+channels_ itself rather than going through getChannelData().
+
+Perturbation is +-2e-7 on ~1 in 8 samples: an order of magnitude below
+16-bit PCM's quantization floor and far below any threshold of human
+audibility. This exists purely to change the exact float values a
+fingerprint script reads, never to be heard or to matter to real
+audio processing.
+
+Needed CallWith=ScriptState on both IDL methods to reach the calling
+script's origin — AudioBuffer is a plain data container with no
+stored ExecutionContext of its own, unlike a canvas element embedded
+in a page.
+
+Reuses the PRNG/salt primitives from canvas_noise.{h,cc} (patches
+011/012) via a new ApplyAudioReadbackNoise() sharing the file rather
+than a third copy of the same splitmix64 generator.
+
+Deliberately scoped to AudioBuffer only. AnalyserNode's frequency-
+domain readouts (getFloatFrequencyData/getByteFrequencyData) are
+another real but less prevalent audio fingerprint vector, left as a
+documented follow-up (docs/ROADMAP.md) rather than folded in here.
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>
+---
+ .../renderer/modules/webaudio/audio_buffer.cc | 54 +++++++++++++++++--
+ .../renderer/modules/webaudio/audio_buffer.h  | 21 ++++++--
+ .../modules/webaudio/audio_buffer.idl         |  4 +-
+ .../platform/graphics/canvas_noise.cc         | 29 ++++++++++
+ .../renderer/platform/graphics/canvas_noise.h | 42 ++++++++++++---
+ 5 files changed, 134 insertions(+), 16 deletions(-)
+
+diff --git a/third_party/blink/renderer/modules/webaudio/audio_buffer.cc b/third_party/blink/renderer/modules/webaudio/audio_buffer.cc
+index bc4c0c6ca00c1..6b5f3d28bbdd6 100644
+--- a/third_party/blink/renderer/modules/webaudio/audio_buffer.cc
++++ b/third_party/blink/renderer/modules/webaudio/audio_buffer.cc
+@@ -33,11 +33,14 @@
+ #include "base/compiler_specific.h"
+ #include "base/containers/span.h"
+ #include "third_party/blink/renderer/bindings/modules/v8/v8_audio_buffer_options.h"
++#include "third_party/blink/renderer/core/execution_context/execution_context.h"
+ #include "third_party/blink/renderer/modules/webaudio/base_audio_context.h"
+ #include "third_party/blink/renderer/platform/audio/audio_bus.h"
+ #include "third_party/blink/renderer/platform/audio/audio_utilities.h"
+ #include "third_party/blink/renderer/platform/bindings/exception_messages.h"
+ #include "third_party/blink/renderer/platform/bindings/exception_state.h"
++#include "third_party/blink/renderer/platform/bindings/script_state.h"
++#include "third_party/blink/renderer/platform/graphics/canvas_noise.h"
+ #include "third_party/blink/renderer/platform/wtf/text/strcat.h"
+ 
+ namespace blink {
+@@ -201,7 +204,29 @@ AudioBuffer::AudioBuffer(AudioBus* bus)
+   }
+ }
+ 
++void AudioBuffer::EnsureChannelNoised(unsigned channel_index,
++                                      const SecurityOrigin* origin) {
++  if (!origin || channel_index >= channels_.size()) {
++    return;
++  }
++  // Lazily sized instead of at construction time: this class has several
++  // constructors (from raw channel counts, from an AudioBus, from
++  // options), and growing on demand here means none of them need to know
++  // about noise bookkeeping. WTF::Vector value-initializes new bool
++  // entries to false.
++  if (channel_noise_applied_.size() <= channel_index) {
++    channel_noise_applied_.resize(channels_.size());
++  }
++  if (channel_noise_applied_[channel_index]) {
++    return;
++  }
++  channel_noise_applied_[channel_index] = true;
++  ApplyAudioReadbackNoise(channels_[channel_index]->AsSpan(), channel_index,
++                          origin);
++}
++
+ NotShared<DOMFloat32Array> AudioBuffer::getChannelData(
++    ScriptState* script_state,
+     unsigned channel_index,
+     ExceptionState& exception_state) {
+   if (channel_index >= channels_.size()) {
+@@ -213,6 +238,15 @@ NotShared<DOMFloat32Array> AudioBuffer::getChannelData(
+     return NotShared<DOMFloat32Array>(nullptr);
+   }
+ 
++  // browse patch 013: origin-dependent noise on first JS-visible read of
++  // this channel — see EnsureChannelNoised(). script_state may be missing
++  // its context during worker/window teardown; skip noising rather than
++  // crash, same as every other null-origin guard in this patch series.
++  if (ExecutionContext* execution_context =
++          script_state ? ExecutionContext::From(script_state) : nullptr) {
++    EnsureChannelNoised(channel_index, execution_context->GetSecurityOrigin());
++  }
++
+   return getChannelData(channel_index);
+ }
+ 
+@@ -224,13 +258,16 @@ NotShared<DOMFloat32Array> AudioBuffer::getChannelData(unsigned channel_index) {
+   return NotShared<DOMFloat32Array>(channels_[channel_index].Get());
+ }
+ 
+-void AudioBuffer::copyFromChannel(NotShared<DOMFloat32Array> destination,
++void AudioBuffer::copyFromChannel(ScriptState* script_state,
++                                  NotShared<DOMFloat32Array> destination,
+                                   int32_t channel_number,
+                                   ExceptionState& exception_state) {
+-  return copyFromChannel(destination, channel_number, 0, exception_state);
++  return copyFromChannel(script_state, destination, channel_number, 0,
++                         exception_state);
+ }
+ 
+-void AudioBuffer::copyFromChannel(NotShared<DOMFloat32Array> destination,
++void AudioBuffer::copyFromChannel(ScriptState* script_state,
++                                  NotShared<DOMFloat32Array> destination,
+                                   int32_t channel_number,
+                                   size_t buffer_offset,
+                                   ExceptionState& exception_state) {
+@@ -251,6 +288,17 @@ void AudioBuffer::copyFromChannel(NotShared<DOMFloat32Array> destination,
+     return;
+   }
+ 
++  // browse patch 013: same origin-dependent noise as getChannelData() —
++  // copyFromChannel() reads the same live channel storage via a separate
++  // path (it doesn't call getChannelData() internally), so it needs its
++  // own call to reach channels an origin has only ever copied, never
++  // fetched directly.
++  if (ExecutionContext* execution_context =
++          script_state ? ExecutionContext::From(script_state) : nullptr) {
++    EnsureChannelNoised(static_cast<unsigned>(channel_number),
++                        execution_context->GetSecurityOrigin());
++  }
++
+   base::span<const float> src = channels_[channel_number].Get()->AsSpan();
+   base::span<float> dst = destination->AsSpan();
+ 
+diff --git a/third_party/blink/renderer/modules/webaudio/audio_buffer.h b/third_party/blink/renderer/modules/webaudio/audio_buffer.h
+index 4bbf70b4398c4..d4a45a3fd64c2 100644
+--- a/third_party/blink/renderer/modules/webaudio/audio_buffer.h
++++ b/third_party/blink/renderer/modules/webaudio/audio_buffer.h
+@@ -43,6 +43,8 @@ namespace blink {
+ class AudioBus;
+ class AudioBufferOptions;
+ class ExceptionState;
++class ScriptState;
++class SecurityOrigin;
+ class SharedAudioBuffer;
+ 
+ class MODULES_EXPORT AudioBuffer final : public ScriptWrappable {
+@@ -89,13 +91,16 @@ class MODULES_EXPORT AudioBuffer final : public ScriptWrappable {
+ 
+   // Channel data access
+   unsigned numberOfChannels() const { return channels_.size(); }
+-  NotShared<DOMFloat32Array> getChannelData(unsigned channel_index,
++  NotShared<DOMFloat32Array> getChannelData(ScriptState*,
++                                            unsigned channel_index,
+                                             ExceptionState&);
+   NotShared<DOMFloat32Array> getChannelData(unsigned channel_index);
+-  void copyFromChannel(NotShared<DOMFloat32Array>,
++  void copyFromChannel(ScriptState*,
++                       NotShared<DOMFloat32Array>,
+                        int32_t channel_number,
+                        ExceptionState&);
+-  void copyFromChannel(NotShared<DOMFloat32Array>,
++  void copyFromChannel(ScriptState*,
++                       NotShared<DOMFloat32Array>,
+                        int32_t channel_number,
+                        size_t buffer_offset,
+                        ExceptionState&);
+@@ -119,8 +124,18 @@ class MODULES_EXPORT AudioBuffer final : public ScriptWrappable {
+  private:
+   bool CreatedSuccessfully(unsigned desired_number_of_channels) const;
+ 
++  // browse patch 013: perturbs channel `channel_index`'s live sample data
++  // once (never again for the same channel — see canvas_noise.h's
++  // ApplyAudioReadbackNoise for the full rationale) so that reading it
++  // back via getChannelData()/copyFromChannel() is origin-dependent
++  // rather than a stable cross-site audio fingerprint. Safe to call
++  // unconditionally; a no-op past the first call per channel or if
++  // `origin` is null.
++  void EnsureChannelNoised(unsigned channel_index, const SecurityOrigin*);
++
+   float sample_rate_;
+   uint32_t length_;
++  Vector<bool> channel_noise_applied_;
+ 
+   HeapVector<Member<DOMFloat32Array>> channels_;
+ };
+diff --git a/third_party/blink/renderer/modules/webaudio/audio_buffer.idl b/third_party/blink/renderer/modules/webaudio/audio_buffer.idl
+index 48bf56bf82542..88e980b559a37 100644
+--- a/third_party/blink/renderer/modules/webaudio/audio_buffer.idl
++++ b/third_party/blink/renderer/modules/webaudio/audio_buffer.idl
+@@ -37,9 +37,9 @@
+ 
+     // Channel access
+     readonly attribute unsigned long numberOfChannels;
+-    [Measure, RaisesException] Float32Array getChannelData(
++    [Measure, RaisesException, CallWith=ScriptState] Float32Array getChannelData(
+         unsigned long channelIndex);
+-    [Measure, RaisesException] void copyFromChannel(
++    [Measure, RaisesException, CallWith=ScriptState] void copyFromChannel(
+         Float32Array destination,
+         unsigned long channelNumber,
+         optional unsigned long bufferOffset = 0);
+diff --git a/third_party/blink/renderer/platform/graphics/canvas_noise.cc b/third_party/blink/renderer/platform/graphics/canvas_noise.cc
+index a322b6bfb81ea..5b7234681a941 100644
+--- a/third_party/blink/renderer/platform/graphics/canvas_noise.cc
++++ b/third_party/blink/renderer/platform/graphics/canvas_noise.cc
+@@ -143,4 +143,33 @@ void MakePrivateCanvasSnapshotAndApplyNoise(sk_sp<SkImage>& image,
+   ApplyCanvasReadbackNoise(pixmap, origin);
+ }
+ 
++void ApplyAudioReadbackNoise(base::span<float> samples,
++                             unsigned channel_index,
++                             const SecurityOrigin* origin) {
++  if (!origin || samples.empty()) {
++    return;
++  }
++  uint64_t state =
++      CanvasNoiseProcessSalt() ^ base::Hash(origin->ToString().Utf8()) ^
++      (static_cast<uint64_t>(channel_index) * UINT64_C(0x9E3779B97F4A7C15));
++  if (state == 0) {
++    state = UINT64_C(0x9E3779B97F4A7C15);  // splitmix64 needs a nonzero seed.
++  }
++
++  // 2e-7 is roughly an order of magnitude below 16-bit PCM's quantization
++  // floor (~3e-5) and far below any threshold of human audibility —
++  // plenty to change the exact bytes a fingerprint script hashes, nowhere
++  // near enough to be heard or to matter to any real audio processing.
++  constexpr float kMaxDelta = 2e-7f;
++  for (float& sample : samples) {
++    const uint64_t r = NextCanvasNoiseValue(state);
++    if ((r & 0x7) != 0) {
++      continue;  // perturb roughly 1 in 8 samples, same density as canvas
++    }
++    // Top 24 bits of `r` as a uniform value in [0, 1).
++    const float unit = static_cast<float>(r >> 40) / static_cast<float>(1u << 24);
++    sample += (unit * 2.0f - 1.0f) * kMaxDelta;
++  }
++}
++
+ }  // namespace blink
+diff --git a/third_party/blink/renderer/platform/graphics/canvas_noise.h b/third_party/blink/renderer/platform/graphics/canvas_noise.h
+index e7c01d49a59a0..851b37b9f5afb 100644
+--- a/third_party/blink/renderer/platform/graphics/canvas_noise.h
++++ b/third_party/blink/renderer/platform/graphics/canvas_noise.h
+@@ -1,18 +1,27 @@
+-// browse patch 011/012: shared canvas-fingerprinting noise ("farbling").
++// browse patch 011/012/013: shared fingerprinting noise ("farbling") for
++// canvas AND Web Audio readouts.
+ //
+-// Perturbs a small, origin-stable subset of a pixel buffer so that reading
+-// canvas pixels back (via getImageData, toDataURL, or toBlob) yields a
+-// result that differs across origins but stays internally consistent for
+-// one origin during a browser session. See canvas_noise.cc for the full
+-// rationale; used from both
++// Perturbs a small, origin-stable subset of a pixel or audio-sample buffer
++// so that reading canvas pixels back (via getImageData, toDataURL, or
++// toBlob) or audio samples back (via AudioBuffer.getChannelData /
++// copyFromChannel) yields a result that differs across origins but stays
++// internally consistent for one origin during a browser session. See
++// canvas_noise.cc for the full rationale; used from
+ // third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+-// (getImageData, patch 011) and
++// (getImageData, patch 011),
+ // third_party/blink/renderer/platform/graphics/image_data_buffer.cc
+-// (toDataURL/toBlob, patch 012) — one algorithm, one place to review.
++// (toDataURL/toBlob, patch 012), and
++// third_party/blink/renderer/modules/webaudio/audio_buffer.cc
++// (getChannelData/copyFromChannel, patch 013) — one algorithm family, one
++// place to review. Kept in graphics/ rather than split into a
++// differently-located file: it shares the same PRNG/salt primitives and
++// none of the three callers are far from an existing platform/graphics
++// dependency.
+ 
+ #ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_CANVAS_NOISE_H_
+ #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_CANVAS_NOISE_H_
+ 
++#include "base/containers/span.h"
+ #include "third_party/blink/renderer/platform/platform_export.h"
+ #include "third_party/skia/include/core/SkPixmap.h"
+ #include "third_party/skia/include/core/SkRefCnt.h"
+@@ -47,6 +56,23 @@ PLATFORM_EXPORT void MakePrivateCanvasSnapshotAndApplyNoise(
+     SkPixmap& pixmap,
+     const SecurityOrigin* origin);
+ 
++// `samples` must be a buffer this caller may freely mutate — unlike canvas
++// pixels, Web Audio's getChannelData() intentionally returns a live,
++// writable view onto the AudioBuffer's own storage (mutating it is
++// spec'd, legitimate behavior), so unlike ApplyCanvasReadbackNoise there
++// is no "might alias a cache" concern to guard against here; callers are
++// instead responsible for applying this at most once per channel (see
++// AudioBuffer::EnsureChannelNoised) so repeated reads stay consistent and
++// noise doesn't accumulate call after call. `channel_index` is folded into
++// the seed so different channels of the same buffer don't all shift by an
++// identical pattern. The perturbation magnitude is far below both 16-bit
++// PCM quantization noise and any plausible audibility threshold — this
++// changes what a fingerprint script reads, never what anything sounds
++// like. `origin` may be null, in which case this is a no-op.
++PLATFORM_EXPORT void ApplyAudioReadbackNoise(base::span<float> samples,
++                                             unsigned channel_index,
++                                             const SecurityOrigin* origin);
++
+ }  // namespace blink
+ 
+ #endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_CANVAS_NOISE_H_
+-- 
+2.52.0
+

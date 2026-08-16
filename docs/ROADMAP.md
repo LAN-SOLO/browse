@@ -20,18 +20,20 @@
 - **Patch 011 (Canvas-Noise für `getImageData`) umgesetzt & verifiziert.**
 - **Patch 012 (Canvas-Noise für `toDataURL`/`toBlob`) umgesetzt & verifiziert.**
   Noise-Algorithmus aus 011 in `platform/graphics/canvas_noise.{h,cc}`
-  extrahiert (ein Ort, eine Review). WebAudio folgt getrennt als `013` —
-  anderer Datentyp (Float32), andere Regressionsfläche.
+  extrahiert (ein Ort, eine Review).
+- **Patch 013 (WebAudio-Noise für `AudioBuffer`) umgesetzt & verifiziert.**
+  Dritter und letzter der drei klassischen Fingerprint-Vektoren (Canvas ×2 +
+  Audio) geschlossen. UI-Toggle für den gesamten Modus folgt als `014`.
 - Dev-Shell, CI, Monitoring, Build-Pipeline stehen.
 - **Bekannte Einschränkung:** `apply-patches.sh`s Idempotenz-Check
   (`git apply --check --reverse`) kann sich irren, wenn ein späterer Patch
-  dieselbe Stelle wie ein früherer verändert (erstmals bei 011→012
-  aufgetreten) — er prüft, ob JEDER Patch für sich allein reversibel ist,
-  nicht ob die kumulative Kette angewendet wurde. Betrifft nur die
-  Selbstprüfung gegen einen bereits vollständig gepatchten Checkout, nicht
-  die eigentliche Anwendung auf einen frischen Checkout (dort zuverlässig
-  gegengetestet: 011+012 nacheinander aus dem echten Vor-011-Zustand
-  angewendet → bytegleich zu HEAD).
+  dieselbe Stelle wie ein früherer verändert (erstmals bei 011→012, dann
+  wieder bei 013 wegen `canvas_noise.{h,cc}`) — er prüft, ob JEDER Patch
+  für sich allein reversibel ist, nicht ob die kumulative Kette angewendet
+  wurde. Betrifft nur die Selbstprüfung gegen einen bereits vollständig
+  gepatchten Checkout, nicht die eigentliche Anwendung auf einen frischen
+  Checkout (dort zuverlässig gegengetestet: 011→012→013 nacheinander aus
+  dem echten Vor-011-Zustand angewendet → bytegleich zu HEAD).
 
 ## Patch-Backlog (nach Aufwand & Wirkung sortiert)
 
@@ -47,8 +49,8 @@ Reihenfolge = empfohlene Umsetzung. „Größe" = grobe Patch-/Build-Komplexitä
 | 010 | **Fingerprinting-Schutz — Client Hints** | S | mittel — schließt eine kostenlose Fingerprint-Quelle | ✅ **umgesetzt** (`010-reduce-client-hints.patch`): `kUA`/`kUAMobile`/`kUAPlatform` sind die einzigen Client Hints, die Upstream ohne Site-Opt-in an jede Origin schickt (`blink::IsClientHintSentByDefault`, konsumiert von `content/browser/client_hints`' `IsClientHintEnabled`). Patch macht sie wie jeden High-Entropy-Hint opt-in-pflichtig (Accept-CH); `Save-Data` bleibt an, da nutzergewählte Präferenz statt Geräte-Fingerprint. Einzeiliger, gut umrissener Eingriff in eine Funktion — genau das Kaliber, das Patch-Minimalismus erlaubt. |
 | 011 | **Fingerprinting-Schutz — Canvas-Noise (`getImageData`)** | M | hoch — deckt den meistgenutzten Canvas-Fingerprint-Vektor | ✅ **umgesetzt** (`011-canvas-noise.patch`): `BaseRenderingContext2D::getImageDataInternal` (gemeinsame Basis für `<canvas>` UND `OffscreenCanvas`) perturbiert nach erfolgreichem `readPixels` ~1 von 8 Pixeln um ±1 auf einem RGB-Kanal (nie Alpha). Seed = Prozess-Zufallssalt XOR `base::Hash(Origin)` — stabil pro Origin für die Prozesslaufzeit, unterschiedlich zwischen Origins, neu nach Neustart. Verifiziert per CDP gegen das gebaute Binary: gleiche Origin/zweiter Read → bytegleich; zwei Origins, identische Zeichnung → unterschiedlicher Pixel-Checksum, Mittelwert-Differenz 0.0008 (unsichtbar). Musste auf `gfx::SkPixmapToWritableSpan` umgestellt werden — rohe Pointer-Arithmetik verletzt Chromiums `-Wunsafe-buffer-usage`. |
 | 012 | **Fingerprinting-Schutz — `toDataURL`/`toBlob`-Noise** | M | mittel-hoch — zweiter und dritter klassischer Canvas-Fingerprint-Vektor | ✅ **umgesetzt** (`012-canvas-export-noise.patch`): `toDataURL`/`toBlob` (inkl. `OffscreenCanvas.convertToBlob`, gleiche `CanvasAsyncBlobCreator`-Klasse) lesen ihre Pixel über `SkImage::peekPixels()` — Zero-Copy-Sicht auf Speicher, den das Bild noch selbst besitzt (evtl. geteilt mit dem laufenden Canvas-Rendering). Neuer Helfer `MakePrivateCanvasSnapshotAndApplyNoise` erzwingt per `readPixels()` erst eine private Kopie, bevor gerauscht wird — sonst Korruptionsrisiko für geteilte Bilder. `ImageDataBuffer::ApplyOriginNoise()` ist bewusst opt-in: `ImageDataBuffer` wird auch von DevTools-Audits, Accessibility und Video-Poster-Capture genutzt, die keine JS-exponierte Fingerprint-Fläche sind. Verifiziert per CDP: `toDataURL`/`toBlob` je stabil pro Origin, unterschiedlich zwischen Origins (auch unterschiedliche PNG-Byte-Länge); `getImageData`-Regression nach dem Refactor geprüft — funktioniert weiter. |
-| 013 | **Fingerprinting-Schutz — WebAudio-Noise** | L | mittel — dritter, seltener genutzter Vektor | `AudioBuffer::getChannelData`/`copyFromChannel` analog perturbieren; eigener Entwurf, da anderer Datentyp (Float32) und andere Regressionsfläche (Audio-Verarbeitung, nicht Bild). |
-| 014 | **Fingerprinting-Schutz — UI-Toggle ("Modus")** | S | UX — macht 011–013 abschaltbar | Bisher greifen 011 fest (kein Opt-out); ein Setting + Pref bündelt alle drei, Standard = an. Erst sinnvoll, wenn 012/013 stehen. |
+| 013 | **Fingerprinting-Schutz — WebAudio-Noise** | L | mittel — dritter, seltener genutzter Vektor | ✅ **umgesetzt** (`013-audio-noise.patch`): `AudioBuffer::getChannelData`/`copyFromChannel` (das klassische OfflineAudioContext-Rezept: Oszillator + Dynamics Compressor rendern, Samples zurücklesen, hashen). Anders als Canvas-Pixel ist `getChannelData()` laut Spezifikation eine **live, veränderbare** Sicht auf den Puffer — Rauschen wird deshalb nur **einmal pro Kanal** angewendet (`channel_noise_applied_`-Tracking), sonst würde es bei wiederholten Reads akkumulieren. Amplitude ±2e-7 auf ~1 von 8 Samples — eine Größenordnung unter dem 16-Bit-Quantisierungsrauschen, weit unter jeder Hörbarkeitsschwelle. Brauchte `CallWith=ScriptState` in der IDL, um an die aufrufende Origin zu kommen (`AudioBuffer` speichert selbst keinen Execution-Context). Verifiziert per CDP: stabil bei wiederholtem Read, `copyFromChannel` stimmt exakt mit `getChannelData` überein, unterschiedliche Origins → unterschiedliche Werte bei identischem Rendering. `AnalyserNode`-Frequenzanalyse (zweiter, selteneren Audio-Fingerprint-Vektor) bewusst nicht mit abgedeckt — eigener Follow-up-Patch bei Bedarf. |
+| 014 | **Fingerprinting-Schutz — UI-Toggle ("Modus")** | S | UX — macht 011–013 abschaltbar | 011–013 greifen bisher fest (kein Opt-out); ein Setting + Pref bündelt alle drei, Standard = an. 011–013 stehen jetzt alle — als Nächstes dran. |
 
 ## Phase 1 — Komfort & Sichtbares (nach Patches 005–008)
 
