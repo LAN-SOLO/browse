@@ -1,0 +1,524 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Batman <batman@Batman.local>
+Date: Sun, 16 Aug 2026 18:56:56 +0200
+Subject: [PATCH] browse patch 012: noise canvas toDataURL()/toBlob() readback
+ per origin
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+toDataURL() and toBlob() are the other two classic canvas-
+fingerprinting readouts alongside getImageData() (patch 011): draw a
+deterministic scene, export it (as a data: URL or Blob), hash the
+bytes.
+
+Extracts the noise algorithm from patch 011 into a shared
+third_party/blink/renderer/platform/graphics/canvas_noise.{h,cc} —
+one place to review the actual perturbation logic, used from both
+BaseRenderingContext2D::getImageDataInternal (canvas2d, unchanged
+behavior) and the two new call sites below.
+
+Both toDataURL() (HTMLCanvasElement::ToDataURLInternal, via
+ImageDataBuffer::Create) and toBlob() (CanvasAsyncBlobCreator's
+constructor, which also backs OffscreenCanvas.convertToBlob()) reach
+their pixels through SkImage::peekPixels() — a zero-copy view into
+memory the image still owns, potentially shared with the canvas's own
+compositing output. Mutating that in place would corrupt whatever
+else references it, unlike getImageData()'s always-fresh ImageData
+buffer. The new shared helper
+MakePrivateCanvasSnapshotAndApplyNoise() makes an exclusively-owned
+copy via SkImage::readPixels() first — the same technique
+ImageDataBuffer's own constructor already uses for its
+texture-backed branch — then applies the noise to that copy.
+
+ImageDataBuffer::ApplyOriginNoise() is scoped deliberately: only the
+two canvas call sites invoke it. ImageDataBuffer::Create is also used
+by DevTools audits, accessibility, and video poster capture, none of
+which are JS-exposed fingerprinting surfaces — noising those would be
+pointless and risks visible corruption of unrelated browser features
+that happen to reuse the same utility class.
+---
+ .../html/canvas/canvas_async_blob_creator.cc  |  12 ++
+ .../core/html/canvas/html_canvas_element.cc   |   7 +
+ .../canvas2d/base_rendering_context_2d.cc     | 107 +------------
+ third_party/blink/renderer/platform/BUILD.gn  |   2 +
+ .../platform/graphics/canvas_noise.cc         | 146 ++++++++++++++++++
+ .../renderer/platform/graphics/canvas_noise.h |  52 +++++++
+ .../platform/graphics/image_data_buffer.cc    |  14 ++
+ .../platform/graphics/image_data_buffer.h     |  16 ++
+ 8 files changed, 253 insertions(+), 103 deletions(-)
+ create mode 100644 third_party/blink/renderer/platform/graphics/canvas_noise.cc
+ create mode 100644 third_party/blink/renderer/platform/graphics/canvas_noise.h
+
+diff --git a/third_party/blink/renderer/core/html/canvas/canvas_async_blob_creator.cc b/third_party/blink/renderer/core/html/canvas/canvas_async_blob_creator.cc
+index adb616defbf32..aa0ee39de4a1e 100644
+--- a/third_party/blink/renderer/core/html/canvas/canvas_async_blob_creator.cc
++++ b/third_party/blink/renderer/core/html/canvas/canvas_async_blob_creator.cc
+@@ -16,6 +16,7 @@
+ #include "third_party/blink/renderer/core/execution_context/execution_context.h"
+ #include "third_party/blink/renderer/core/fileapi/blob.h"
+ #include "third_party/blink/renderer/core/html/canvas/canvas_rendering_context.h"
++#include "third_party/blink/renderer/platform/graphics/canvas_noise.h"
+ #include "third_party/blink/renderer/platform/graphics/image_data_buffer.h"
+ #include "third_party/blink/renderer/platform/graphics/skia/skia_utils.h"
+ #include "third_party/blink/renderer/platform/graphics/unaccelerated_static_bitmap_image.h"
+@@ -207,6 +208,17 @@ CanvasAsyncBlobCreator::CanvasAsyncBlobCreator(
+                            std::min(info.height(), max_dimension));
+         src_data_.reset(info, src_data_.addr(), src_data_.rowBytes());
+       }
++
++      // browse patch 012: same origin-dependent noise as getImageData()
++      // (patch 011) and toDataURL() — toBlob() is the third classic
++      // canvas-fingerprinting readout. `src_data_` aliases `skia_image_`'s
++      // own pixels (peekPixels() above is zero-copy), so this must take a
++      // private copy before perturbing — see canvas_noise.h. All three
++      // toBlob() encoding paths (idle/progressive, off-thread, in-thread)
++      // read from these same two members, so one call here covers all of
++      // them.
++      MakePrivateCanvasSnapshotAndApplyNoise(skia_image_, src_data_,
++                                             context->GetSecurityOrigin());
+     }
+   }
+ 
+diff --git a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+index d1193b68f5051..e59883e505911 100644
+--- a/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
++++ b/third_party/blink/renderer/core/html/canvas/html_canvas_element.cc
+@@ -1292,6 +1292,13 @@ String HTMLCanvasElement::ToDataURLInternal(
+     if (!data_buffer)
+       return String("data:,");
+ 
++    // browse patch 012: same origin-dependent noise as getImageData()
++    // (patch 011) — toDataURL() is the other classic canvas-fingerprinting
++    // readout. See canvas_noise.h for the full rationale.
++    if (ExecutionContext* execution_context = GetExecutionContext()) {
++      data_buffer->ApplyOriginNoise(execution_context->GetSecurityOrigin());
++    }
++
+     String data_url = data_buffer->ToDataURL(encoding_mime_type, quality);
+     base::TimeDelta elapsed_time = base::TimeTicks::Now() - start_time;
+     float sqrt_pixels =
+diff --git a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+index e29a7f31c637e..bf59f05bbd46c 100644
+--- a/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
++++ b/third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
+@@ -83,6 +83,7 @@
+ #include "third_party/blink/renderer/platform/graphics/canvas_2d_bitmap_provider.h"
+ #include "third_party/blink/renderer/platform/graphics/canvas_2d_resource_provider.h"
+ #include "third_party/blink/renderer/platform/graphics/canvas_deferred_paint_record.h"
++#include "third_party/blink/renderer/platform/graphics/canvas_noise.h"
+ #include "third_party/blink/renderer/platform/graphics/flush_reason.h"
+ #include "third_party/blink/renderer/platform/graphics/gpu/shared_gpu_context.h"
+ #include "third_party/blink/renderer/platform/graphics/gpu/webgpu_cpp.h"
+@@ -130,107 +131,6 @@ bool IsContextProviderValid() {
+          !context_provider_wrapper->ContextProvider().IsContextLost();
+ }
+ 
+-// browse patch 011: canvas readback noise (Brave/Mullvad "farbling").
+-//
+-// getImageData() is one of the two classic canvas-fingerprinting readouts
+-// (the other, toDataURL()/toBlob(), is a separate patch — different call
+-// path, see docs/ROADMAP.md #012). A script draws a deterministic scene,
+-// reads the pixels back and hashes them; because rendering is
+-// bit-identical across machines with the same GPU/font stack, that hash is
+-// a stable cross-site tracking id. The fix isn't to block getImageData
+-// (too much legitimate content relies on it) but to make its output
+-// *origin-dependent*: perturb a small, origin-stable subset of pixels by
+-// ±1 on one color channel. Invisible to a human, but it flips bits a naive
+-// fingerprint hash reads, and it can't be used to correlate the same user
+-// across two different sites, since each origin gets an unrelated pattern.
+-//
+-// Determinism is required in both directions: the SAME origin must get the
+-// SAME pattern on every read (repeated getImageData calls from one page —
+-// a very normal thing to do — must stay internally consistent, and a
+-// process-stable pattern can't be "voted out" by reading twice and
+-// diffing). Different origins must get UNRELATED patterns (otherwise the
+-// noise itself becomes a new stable fingerprint). Restarting the browser
+-// must change every site's pattern (otherwise the noise becomes a
+-// long-lived tracking id in its own right). A per-process random salt
+-// mixed with the origin via base::Hash satisfies all three: stable for the
+-// life of the process, different per origin, gone on restart.
+-//
+-// Deliberately NOT cryptographic — nothing here is a secret, the property
+-// we need is "differs across sites, stable within one", not unguessability.
+-
+-uint64_t CanvasNoiseProcessSalt() {
+-  static const uint64_t salt = base::RandUint64();
+-  return salt;
+-}
+-
+-// xorshift-family splitmix64 step. Minimal, fast, good-enough distribution
+-// for a non-cryptographic per-pixel decision; avoids fighting
+-// base::InsecureRandomGenerator's test-only reseed API for what is, in the
+-// end, just "which pixels get nudged".
+-uint64_t NextCanvasNoiseValue(uint64_t& state) {
+-  uint64_t z = (state += UINT64_C(0x9E3779B97F4A7C15));
+-  z = (z ^ (z >> 30)) * UINT64_C(0xBF58476D1CE4E5B9);
+-  z = (z ^ (z >> 27)) * UINT64_C(0x94D049BB133111EB);
+-  return z ^ (z >> 31);
+-}
+-
+-void ApplyCanvasReadbackNoise(const SkPixmap& pixmap,
+-                              const SecurityOrigin* origin) {
+-  if (!origin) {
+-    return;
+-  }
+-  const int width = pixmap.width();
+-  const int height = pixmap.height();
+-  if (width <= 0 || height <= 0) {
+-    return;
+-  }
+-  // RGBA8/BGRA8 only (both are 4 bytes/pixel, channel order doesn't matter
+-  // since we perturb whichever byte `channel` happens to name). Wide-gamut
+-  // (F16) canvases use a different byte layout this loop doesn't account
+-  // for — skip rather than risk corrupting pixels we haven't verified.
+-  if (pixmap.info().bytesPerPixel() != 4) {
+-    return;
+-  }
+-
+-  uint64_t state =
+-      CanvasNoiseProcessSalt() ^ base::Hash(origin->ToString().Utf8());
+-  if (state == 0) {
+-    state = UINT64_C(0x9E3779B97F4A7C15);  // splitmix64 needs a nonzero seed.
+-  }
+-
+-  // Chromium's -Wunsafe-buffer-usage forbids raw pointer arithmetic on the
+-  // backing bytes; gfx::SkPixmapToWritableSpan is the standard way callers
+-  // elsewhere in Blink (e.g. ImageDataBuffer) turn a pixmap into a
+-  // bounds-checked base::span instead.
+-  base::span<uint8_t> bytes = gfx::SkPixmapToWritableSpan(pixmap);
+-  const size_t row_bytes = pixmap.rowBytes();
+-  const size_t needed =
+-      row_bytes * static_cast<size_t>(height - 1) + static_cast<size_t>(width) * 4;
+-  if (bytes.size() < needed) {
+-    return;  // Unexpected layout (e.g. size computation overflow) — bail.
+-  }
+-
+-  for (int y = 0; y < height; ++y) {
+-    base::span<uint8_t> row =
+-        bytes.subspan(static_cast<size_t>(y) * row_bytes,
+-                      static_cast<size_t>(width) * 4);
+-    for (int x = 0; x < width; ++x) {
+-      const uint64_t r = NextCanvasNoiseValue(state);
+-      if ((r & 0x7) != 0) {
+-        continue;  // perturb roughly 1 in 8 pixels
+-      }
+-      const int channel = static_cast<int>((r >> 3) & 0x3);
+-      if (channel == 3) {
+-        continue;  // never touch alpha — avoids visible transparency shifts
+-      }
+-      const int delta = ((r >> 5) & 0x1) ? 1 : -1;
+-      const size_t idx = static_cast<size_t>(x) * 4 + static_cast<size_t>(channel);
+-      row[idx] = static_cast<uint8_t>(
+-          std::clamp(static_cast<int>(row[idx]) + delta, 0, 255));
+-    }
+-  }
+-}
+-
+ }  // namespace
+ 
+ constexpr char kDefaultFont[] = "10px sans-serif";
+@@ -623,8 +523,9 @@ ImageData* BaseRenderingContext2D::getImageDataInternal(
+     } else if (ExecutionContext* execution_context =
+                    GetTopExecutionContext()) {
+       // browse patch 011: perturb the readback so it's origin-dependent
+-      // rather than a stable cross-site fingerprint (see
+-      // ApplyCanvasReadbackNoise above for the full rationale).
++      // rather than a stable cross-site fingerprint. Shared with the
++      // toDataURL()/toBlob() noise (patch 012) via canvas_noise.h — see
++      // that file for the full rationale.
+       ApplyCanvasReadbackNoise(image_data_pixmap,
+                                execution_context->GetSecurityOrigin());
+     }
+diff --git a/third_party/blink/renderer/platform/BUILD.gn b/third_party/blink/renderer/platform/BUILD.gn
+index 40c9e58d911ba..3f40b3342511a 100644
+--- a/third_party/blink/renderer/platform/BUILD.gn
++++ b/third_party/blink/renderer/platform/BUILD.gn
+@@ -922,6 +922,8 @@ component("platform") {
+     "graphics/canvas_hibernation_handler.h",
+     "graphics/canvas_image_provider.cc",
+     "graphics/canvas_image_provider.h",
++    "graphics/canvas_noise.cc",
++    "graphics/canvas_noise.h",
+     "graphics/canvas_non_2d_resource_provider.cc",
+     "graphics/canvas_non_2d_resource_provider.h",
+     "graphics/canvas_resource.cc",
+diff --git a/third_party/blink/renderer/platform/graphics/canvas_noise.cc b/third_party/blink/renderer/platform/graphics/canvas_noise.cc
+new file mode 100644
+index 0000000000000..a322b6bfb81ea
+--- /dev/null
++++ b/third_party/blink/renderer/platform/graphics/canvas_noise.cc
+@@ -0,0 +1,146 @@
++// browse patch 011/012: canvas readback noise (Brave/Mullvad "farbling").
++//
++// getImageData() and toDataURL()/toBlob() are the classic canvas-
++// fingerprinting readouts: draw a deterministic scene, read the pixels
++// back (directly, or via a re-decoded PNG), hash them. Because rendering
++// is bit-identical across machines with the same GPU/font stack, that hash
++// is a stable cross-site tracking id. The fix isn't to block these APIs
++// (too much legitimate content relies on them) but to make their output
++// *origin-dependent*: perturb a small, origin-stable subset of pixels by
++// ±1 on one color channel. Invisible to a human, but it flips bits a naive
++// fingerprint hash reads, and it can't be used to correlate the same user
++// across two different sites, since each origin gets an unrelated pattern.
++//
++// Determinism is required in both directions: the SAME origin must get the
++// SAME pattern on every read (repeated reads from one page — a very normal
++// thing to do — must stay internally consistent, and a process-stable
++// pattern can't be "voted out" by reading twice and diffing). Different
++// origins must get UNRELATED patterns (otherwise the noise itself becomes
++// a new stable fingerprint). Restarting the browser must change every
++// site's pattern (otherwise the noise becomes a long-lived tracking id in
++// its own right). A per-process random salt mixed with the origin via
++// base::Hash satisfies all three: stable for the life of the process,
++// different per origin, gone on restart.
++//
++// Deliberately NOT cryptographic — nothing here is a secret, the property
++// we need is "differs across sites, stable within one", not
++// unguessability.
++
++#include "third_party/blink/renderer/platform/graphics/canvas_noise.h"
++
++#include <algorithm>
++#include <cstdint>
++
++#include "base/containers/span.h"
++#include "base/hash/hash.h"
++#include "base/rand_util.h"
++#include "third_party/blink/renderer/platform/weborigin/security_origin.h"
++#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
++#include "third_party/skia/include/core/SkData.h"
++#include "third_party/skia/include/core/SkImage.h"
++#include "ui/gfx/skia_span_util.h"
++
++namespace blink {
++
++namespace {
++
++uint64_t CanvasNoiseProcessSalt() {
++  static const uint64_t salt = base::RandUint64();
++  return salt;
++}
++
++// xorshift-family splitmix64 step. Minimal, fast, good-enough distribution
++// for a non-cryptographic per-pixel decision; avoids fighting
++// base::InsecureRandomGenerator's test-only reseed API for what is, in the
++// end, just "which pixels get nudged".
++uint64_t NextCanvasNoiseValue(uint64_t& state) {
++  uint64_t z = (state += UINT64_C(0x9E3779B97F4A7C15));
++  z = (z ^ (z >> 30)) * UINT64_C(0xBF58476D1CE4E5B9);
++  z = (z ^ (z >> 27)) * UINT64_C(0x94D049BB133111EB);
++  return z ^ (z >> 31);
++}
++
++}  // namespace
++
++void ApplyCanvasReadbackNoise(const SkPixmap& pixmap,
++                              const SecurityOrigin* origin) {
++  if (!origin) {
++    return;
++  }
++  const int width = pixmap.width();
++  const int height = pixmap.height();
++  if (width <= 0 || height <= 0) {
++    return;
++  }
++  // RGBA8/BGRA8 only (both are 4 bytes/pixel, channel order doesn't matter
++  // since we perturb whichever byte `channel` happens to name). Wide-gamut
++  // (F16) canvases use a different byte layout this loop doesn't account
++  // for — skip rather than risk corrupting pixels we haven't verified.
++  if (pixmap.info().bytesPerPixel() != 4) {
++    return;
++  }
++
++  uint64_t state =
++      CanvasNoiseProcessSalt() ^ base::Hash(origin->ToString().Utf8());
++  if (state == 0) {
++    state = UINT64_C(0x9E3779B97F4A7C15);  // splitmix64 needs a nonzero seed.
++  }
++
++  // Chromium's -Wunsafe-buffer-usage forbids raw pointer arithmetic on the
++  // backing bytes; gfx::SkPixmapToWritableSpan is the standard way callers
++  // elsewhere in Blink (e.g. ImageDataBuffer itself) turn a pixmap into a
++  // bounds-checked base::span instead.
++  base::span<uint8_t> bytes = gfx::SkPixmapToWritableSpan(pixmap);
++  const size_t row_bytes = pixmap.rowBytes();
++  const size_t needed =
++      row_bytes * static_cast<size_t>(height - 1) + static_cast<size_t>(width) * 4;
++  if (bytes.size() < needed) {
++    return;  // Unexpected layout (e.g. size computation overflow) — bail.
++  }
++
++  for (int y = 0; y < height; ++y) {
++    base::span<uint8_t> row =
++        bytes.subspan(static_cast<size_t>(y) * row_bytes,
++                      static_cast<size_t>(width) * 4);
++    for (int x = 0; x < width; ++x) {
++      const uint64_t r = NextCanvasNoiseValue(state);
++      if ((r & 0x7) != 0) {
++        continue;  // perturb roughly 1 in 8 pixels
++      }
++      const int channel = static_cast<int>((r >> 3) & 0x3);
++      if (channel == 3) {
++        continue;  // never touch alpha — avoids visible transparency shifts
++      }
++      const int delta = ((r >> 5) & 0x1) ? 1 : -1;
++      const size_t idx = static_cast<size_t>(x) * 4 + static_cast<size_t>(channel);
++      row[idx] = static_cast<uint8_t>(
++          std::clamp(static_cast<int>(row[idx]) + delta, 0, 255));
++    }
++  }
++}
++
++void MakePrivateCanvasSnapshotAndApplyNoise(sk_sp<SkImage>& image,
++                                            SkPixmap& pixmap,
++                                            const SecurityOrigin* origin) {
++  if (!origin || !image) {
++    return;
++  }
++  const SkImageInfo info = pixmap.info();
++  const size_t row_bytes = info.minRowBytes();
++  const size_t size = info.computeByteSize(row_bytes);
++  if (SkImageInfo::ByteSizeOverflowed(size)) {
++    return;
++  }
++  sk_sp<SkData> data = SkData::MakeUninitialized(size);
++  SkPixmap owned_pixmap(info, data->writable_data(), row_bytes);
++  if (!image->readPixels(owned_pixmap.info(), owned_pixmap.writable_addr(),
++                         row_bytes, 0, 0)) {
++    return;
++  }
++  image = SkImages::RasterFromData(info, data, row_bytes);
++  pixmap = owned_pixmap;
++
++  ApplyCanvasReadbackNoise(pixmap, origin);
++}
++
++}  // namespace blink
+diff --git a/third_party/blink/renderer/platform/graphics/canvas_noise.h b/third_party/blink/renderer/platform/graphics/canvas_noise.h
+new file mode 100644
+index 0000000000000..e7c01d49a59a0
+--- /dev/null
++++ b/third_party/blink/renderer/platform/graphics/canvas_noise.h
+@@ -0,0 +1,52 @@
++// browse patch 011/012: shared canvas-fingerprinting noise ("farbling").
++//
++// Perturbs a small, origin-stable subset of a pixel buffer so that reading
++// canvas pixels back (via getImageData, toDataURL, or toBlob) yields a
++// result that differs across origins but stays internally consistent for
++// one origin during a browser session. See canvas_noise.cc for the full
++// rationale; used from both
++// third_party/blink/renderer/modules/canvas/canvas2d/base_rendering_context_2d.cc
++// (getImageData, patch 011) and
++// third_party/blink/renderer/platform/graphics/image_data_buffer.cc
++// (toDataURL/toBlob, patch 012) — one algorithm, one place to review.
++
++#ifndef THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_CANVAS_NOISE_H_
++#define THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_CANVAS_NOISE_H_
++
++#include "third_party/blink/renderer/platform/platform_export.h"
++#include "third_party/skia/include/core/SkPixmap.h"
++#include "third_party/skia/include/core/SkRefCnt.h"
++
++class SkImage;
++
++namespace blink {
++
++class SecurityOrigin;
++
++// `pixmap` must be a buffer this caller exclusively owns (not aliasing a
++// cached or shared image) — this function mutates it in place. Only RGBA8/
++// BGRA8 (4 bytes/pixel) pixmaps are perturbed; other layouts are left
++// untouched. `origin` may be null, in which case this is a no-op.
++PLATFORM_EXPORT void ApplyCanvasReadbackNoise(const SkPixmap& pixmap,
++                                              const SecurityOrigin* origin);
++
++// Canvas readouts (toDataURL/toBlob, getImageData's non-accelerated fast
++// path) often reach this code via SkImage::peekPixels() — a zero-copy view
++// into memory the image still owns, possibly shared with the canvas's own
++// compositing output or cached elsewhere. Calling ApplyCanvasReadbackNoise
++// directly on such a pixmap would corrupt whatever else references it. This
++// helper reads `pixmap`'s current contents into a fresh, exclusively-owned
++// buffer via `image->readPixels()` first (same technique
++// ImageDataBuffer's constructor already uses for its texture-backed
++// branch), repoints both `image` and `pixmap` at that buffer, and only then
++// applies the noise. Safe to call unconditionally, including when `pixmap`
++// already happens to be private — the extra copy is never wasted since
++// every caller is about to encode this one snapshot and discard it.
++PLATFORM_EXPORT void MakePrivateCanvasSnapshotAndApplyNoise(
++    sk_sp<SkImage>& image,
++    SkPixmap& pixmap,
++    const SecurityOrigin* origin);
++
++}  // namespace blink
++
++#endif  // THIRD_PARTY_BLINK_RENDERER_PLATFORM_GRAPHICS_CANVAS_NOISE_H_
+diff --git a/third_party/blink/renderer/platform/graphics/image_data_buffer.cc b/third_party/blink/renderer/platform/graphics/image_data_buffer.cc
+index c76f6553e1cec..c153ca62a7277 100644
+--- a/third_party/blink/renderer/platform/graphics/image_data_buffer.cc
++++ b/third_party/blink/renderer/platform/graphics/image_data_buffer.cc
+@@ -34,6 +34,7 @@
+ 
+ #include "base/compiler_specific.h"
+ #include "base/memory/ptr_util.h"
++#include "third_party/blink/renderer/platform/graphics/canvas_noise.h"
+ #include "third_party/blink/renderer/platform/image-encoders/image_encoder_utils.h"
+ #include "third_party/blink/renderer/platform/wtf/text/base64.h"
+ #include "third_party/blink/renderer/platform/wtf/text/strcat.h"
+@@ -127,6 +128,19 @@ base::span<const uint8_t> ImageDataBuffer::PixelData() const {
+   return gfx::SkPixmapToSpan(pixmap_);
+ }
+ 
++void ImageDataBuffer::ApplyOriginNoise(const SecurityOrigin* origin) {
++  if (!is_valid_ || !retained_image_) {
++    return;
++  }
++  // `pixmap_` may alias `retained_image_`'s own pixel memory (the
++  // peekPixels() fast path in the constructor) rather than a copy this
++  // instance exclusively owns — GetSwSkImage() can return a cached image
++  // the canvas keeps using after this encode, so mutating it in place
++  // would corrupt whatever else still references it.
++  // MakePrivateCanvasSnapshotAndApplyNoise() takes a private copy first.
++  MakePrivateCanvasSnapshotAndApplyNoise(retained_image_, pixmap_, origin);
++}
++
+ bool ImageDataBuffer::EncodeImage(const ImageEncodingMimeType mime_type,
+                                   const double& quality,
+                                   Vector<unsigned char>* encoded_image) const {
+diff --git a/third_party/blink/renderer/platform/graphics/image_data_buffer.h b/third_party/blink/renderer/platform/graphics/image_data_buffer.h
+index 7788473df7e91..b33ffb41b3381 100644
+--- a/third_party/blink/renderer/platform/graphics/image_data_buffer.h
++++ b/third_party/blink/renderer/platform/graphics/image_data_buffer.h
+@@ -43,6 +43,8 @@
+ 
+ namespace blink {
+ 
++class SecurityOrigin;
++
+ class PLATFORM_EXPORT ImageDataBuffer {
+   USING_FAST_MALLOC(ImageDataBuffer);
+ 
+@@ -59,6 +61,20 @@ class PLATFORM_EXPORT ImageDataBuffer {
+ 
+   base::span<const uint8_t> PixelData() const;
+ 
++  // browse patch 012: perturbs this buffer's pixels so a toDataURL()/
++  // toBlob() readout is origin-dependent rather than a stable
++  // cross-site fingerprint — see canvas_noise.h for the full rationale.
++  // Only ImageDataBuffer instances backing a canvas readout should call
++  // this (HTMLCanvasElement::ToDataURLInternal, CanvasAsyncBlobCreator);
++  // other users of this class (DevTools audits, accessibility, video
++  // poster capture) must not, since their output isn't a JS-exposed
++  // fingerprinting surface and gains nothing from the noise. Always
++  // forces `pixmap_` to a private, exclusively-owned copy first — the
++  // fast peekPixels() constructor path can otherwise alias a cached
++  // SkImage that something else still references, and mutating that
++  // in place would corrupt it.
++  void ApplyOriginNoise(const SecurityOrigin* origin);
++
+  private:
+   ImageDataBuffer(const SkPixmap&);
+   ImageDataBuffer(scoped_refptr<StaticBitmapImage>);
+-- 
+2.52.0
+

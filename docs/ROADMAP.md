@@ -18,10 +18,20 @@
   Google; Inhaber-Aufgabe, kein Code-Blocker.
 - **Patch 010 (Client Hints) umgesetzt & verifiziert.**
 - **Patch 011 (Canvas-Noise für `getImageData`) umgesetzt & verifiziert.**
-  toDataURL()/toBlob() (separater Encode-Pfad) und WebAudio folgen getrennt
-  als `012`/`013` — Patch-Minimalismus heißt auch: den riskanteren, größeren
-  Teil nicht an einen kleinen, gut verifizierbaren Teil koppeln.
+- **Patch 012 (Canvas-Noise für `toDataURL`/`toBlob`) umgesetzt & verifiziert.**
+  Noise-Algorithmus aus 011 in `platform/graphics/canvas_noise.{h,cc}`
+  extrahiert (ein Ort, eine Review). WebAudio folgt getrennt als `013` —
+  anderer Datentyp (Float32), andere Regressionsfläche.
 - Dev-Shell, CI, Monitoring, Build-Pipeline stehen.
+- **Bekannte Einschränkung:** `apply-patches.sh`s Idempotenz-Check
+  (`git apply --check --reverse`) kann sich irren, wenn ein späterer Patch
+  dieselbe Stelle wie ein früherer verändert (erstmals bei 011→012
+  aufgetreten) — er prüft, ob JEDER Patch für sich allein reversibel ist,
+  nicht ob die kumulative Kette angewendet wurde. Betrifft nur die
+  Selbstprüfung gegen einen bereits vollständig gepatchten Checkout, nicht
+  die eigentliche Anwendung auf einen frischen Checkout (dort zuverlässig
+  gegengetestet: 011+012 nacheinander aus dem echten Vor-011-Zustand
+  angewendet → bytegleich zu HEAD).
 
 ## Patch-Backlog (nach Aufwand & Wirkung sortiert)
 
@@ -36,7 +46,7 @@ Reihenfolge = empfohlene Umsetzung. „Größe" = grobe Patch-/Build-Komplexitä
 | 009 | **Widevine-DRM** | L | hoch für Streaming-Nutzer | Widevine-Lizenz + `enable_widevine=true`; erst nach Lizenzvertrag. Bis dahin ehrlich kommuniziert (Landing-Page-Disclaimer steht). **Blockiert auf Inhaber (Lizenz).** |
 | 010 | **Fingerprinting-Schutz — Client Hints** | S | mittel — schließt eine kostenlose Fingerprint-Quelle | ✅ **umgesetzt** (`010-reduce-client-hints.patch`): `kUA`/`kUAMobile`/`kUAPlatform` sind die einzigen Client Hints, die Upstream ohne Site-Opt-in an jede Origin schickt (`blink::IsClientHintSentByDefault`, konsumiert von `content/browser/client_hints`' `IsClientHintEnabled`). Patch macht sie wie jeden High-Entropy-Hint opt-in-pflichtig (Accept-CH); `Save-Data` bleibt an, da nutzergewählte Präferenz statt Geräte-Fingerprint. Einzeiliger, gut umrissener Eingriff in eine Funktion — genau das Kaliber, das Patch-Minimalismus erlaubt. |
 | 011 | **Fingerprinting-Schutz — Canvas-Noise (`getImageData`)** | M | hoch — deckt den meistgenutzten Canvas-Fingerprint-Vektor | ✅ **umgesetzt** (`011-canvas-noise.patch`): `BaseRenderingContext2D::getImageDataInternal` (gemeinsame Basis für `<canvas>` UND `OffscreenCanvas`) perturbiert nach erfolgreichem `readPixels` ~1 von 8 Pixeln um ±1 auf einem RGB-Kanal (nie Alpha). Seed = Prozess-Zufallssalt XOR `base::Hash(Origin)` — stabil pro Origin für die Prozesslaufzeit, unterschiedlich zwischen Origins, neu nach Neustart. Verifiziert per CDP gegen das gebaute Binary: gleiche Origin/zweiter Read → bytegleich; zwei Origins, identische Zeichnung → unterschiedlicher Pixel-Checksum, Mittelwert-Differenz 0.0008 (unsichtbar). Musste auf `gfx::SkPixmapToWritableSpan` umgestellt werden — rohe Pointer-Arithmetik verletzt Chromiums `-Wunsafe-buffer-usage`. |
-| 012 | **Fingerprinting-Schutz — `toDataURL`/`toBlob`-Noise** | M | mittel-hoch — zweiter klassischer Canvas-Fingerprint-Vektor | `HTMLCanvasElement::ToDataURLInternal`/`toBlob` lesen über `Snapshot()` direkt aus dem `StaticBitmapImage`, nicht über `getImageDataInternal` — eigener Injektionspunkt nötig, kann aber dieselben Noise-Helfer aus Patch 011 wiederverwenden. |
+| 012 | **Fingerprinting-Schutz — `toDataURL`/`toBlob`-Noise** | M | mittel-hoch — zweiter und dritter klassischer Canvas-Fingerprint-Vektor | ✅ **umgesetzt** (`012-canvas-export-noise.patch`): `toDataURL`/`toBlob` (inkl. `OffscreenCanvas.convertToBlob`, gleiche `CanvasAsyncBlobCreator`-Klasse) lesen ihre Pixel über `SkImage::peekPixels()` — Zero-Copy-Sicht auf Speicher, den das Bild noch selbst besitzt (evtl. geteilt mit dem laufenden Canvas-Rendering). Neuer Helfer `MakePrivateCanvasSnapshotAndApplyNoise` erzwingt per `readPixels()` erst eine private Kopie, bevor gerauscht wird — sonst Korruptionsrisiko für geteilte Bilder. `ImageDataBuffer::ApplyOriginNoise()` ist bewusst opt-in: `ImageDataBuffer` wird auch von DevTools-Audits, Accessibility und Video-Poster-Capture genutzt, die keine JS-exponierte Fingerprint-Fläche sind. Verifiziert per CDP: `toDataURL`/`toBlob` je stabil pro Origin, unterschiedlich zwischen Origins (auch unterschiedliche PNG-Byte-Länge); `getImageData`-Regression nach dem Refactor geprüft — funktioniert weiter. |
 | 013 | **Fingerprinting-Schutz — WebAudio-Noise** | L | mittel — dritter, seltener genutzter Vektor | `AudioBuffer::getChannelData`/`copyFromChannel` analog perturbieren; eigener Entwurf, da anderer Datentyp (Float32) und andere Regressionsfläche (Audio-Verarbeitung, nicht Bild). |
 | 014 | **Fingerprinting-Schutz — UI-Toggle ("Modus")** | S | UX — macht 011–013 abschaltbar | Bisher greifen 011 fest (kein Opt-out); ein Setting + Pref bündelt alle drei, Standard = an. Erst sinnvoll, wenn 012/013 stehen. |
 
