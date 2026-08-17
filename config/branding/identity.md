@@ -14,7 +14,10 @@ Grundlage für den Branding-Patch (Phase 0 → Patchset) und die Installer.
 | Primärfarbe | `#0284c7` (primary-600 der Website), dunkel `#38bdf8` |
 | Schrift Marketing | Mono-lastig wie lan-solo.com; UI folgt Plattformkonventionen |
 
-Logo/Icon: eigenes Icon-Set noch offen (nicht das Website-Logo 1:1 übernehmen);
-bis dahin Chromium-Standard-Icon im Prototyp. Kein Google-, Chrome- oder
+Logo/Icon: offizielles Icon-Set liegt in `config/branding/icons/` (SVG-Master
+`browse.svg` + PNG-Ableitungen 16–1024 px, Stil: dunkle Squircle, blauer
+Kompass, weißer Pivot-Punkt — einheitlich mit keypile/secrets/all-backed,
+generiert aus demselben Icon-Kit wie die Website-Icons unter
+lan-solo.com/icons/). Der Branding-Patch bindet diese Dateien ein. Kein Google-, Chrome- oder
 Chromium-Branding in Releases (Markenrecht!) — der Branding-Patch ersetzt
 Produktnamen und Icons vollständig.
