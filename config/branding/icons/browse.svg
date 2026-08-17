@@ -35,10 +35,12 @@
   <rect x="8" y="8" width="1008" height="1008" rx="232" fill="url(#sheen)"/>
   <rect x="14" y="14" width="996" height="996" rx="226" fill="none" stroke="url(#edge)" stroke-width="6"/>
   <g filter="url(#drop)">
-    <circle cx="512" cy="512" r="268" fill="none" stroke="url(#glyph)" stroke-width="64"/>
-    <g transform="rotate(45 512 512)">
-      <path fill="url(#glyph)" d="M 512 330 L 585 512 L 439 512 Z"/>
-      <path fill="url(#glyphDeep)" d="M 512 694 L 585 512 L 439 512 Z"/>
-    </g>
+    <rect x="232" y="272" width="560" height="480" rx="56" fill="none"
+      stroke="url(#glyph)" stroke-width="58"/>
+    <circle cx="452" cy="352" r="30" fill="url(#glyph)"/>
+    <circle cx="552" cy="352" r="30" fill="url(#glyphDeep)"/>
+    <path d="M 388 500 L 500 588 L 388 676" fill="none"
+      stroke="url(#glyph)" stroke-width="54" stroke-linecap="round" stroke-linejoin="round"/>
+    <rect x="556" y="650" width="116" height="52" rx="26" fill="#0ea5e9"/>
   </g>
-  <circle cx="512" cy="512" r="42" fill="#eef4fa" filter="url(#dotdrop)"/></svg>
+  <circle cx="352" cy="352" r="30" fill="#eef4fa" filter="url(#dotdrop)"/></svg>
