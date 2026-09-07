@@ -6,6 +6,19 @@
   --text: #cbd5e1;
   --dim: #64748b;
   --accent: #38bdf8;
+  color-scheme: dark;
+}
+/* Light mode follows the browser/OS setting, like browse. itself. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #eef2f8;
+    --panel: #ffffff;
+    --line: #c3cfe0;
+    --text: #16233a;
+    --dim: #5b6b83;
+    --accent: #0284c7;
+    color-scheme: light;
+  }
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }

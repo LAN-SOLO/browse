@@ -85,6 +85,16 @@ const CONTENT = {
         den Tab an exakt der Stelle, an der er war.</p>`,
     },
     {
+      id: 'appearance',
+      title: 'Hell & Dunkel',
+      html: `
+        <p>browse folgt dem Erscheinungsbild Ihres Systems: Ist macOS oder
+        Windows auf Dunkel gestellt, sind Oberfläche und dieses Handbuch
+        dunkel, sonst hell. Unter <em>Einstellungen → Darstellung → Modus</em>
+        lässt sich der Modus unabhängig vom System fest auf Hell oder Dunkel
+        setzen.</p>`,
+    },
+    {
       id: 'roadmap',
       title: 'Was noch kommt',
       html: `
@@ -174,6 +184,15 @@ const CONTENT = {
         <p>browse puts inactive tabs to sleep after a while: they stay
         visible but release memory and CPU. One click wakes a tab exactly
         where it left off.</p>`,
+    },
+    {
+      id: 'appearance',
+      title: 'Light & dark',
+      html: `
+        <p>browse follows your system appearance: with macOS or Windows set
+        to dark, the interface and this handbook are dark, otherwise light.
+        Under <em>Settings → Appearance → Mode</em> you can pin the mode to
+        light or dark independently of the system.</p>`,
     },
     {
       id: 'roadmap',
