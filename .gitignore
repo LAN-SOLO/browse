@@ -11,3 +11,6 @@
 
 .DS_Store
 node_modules
+
+# Lokale Test-Builds (macOS/Windows/Linux) — nie committen
+.Deploy/
