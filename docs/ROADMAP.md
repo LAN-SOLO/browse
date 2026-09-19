@@ -14,8 +14,15 @@
   Tabs default an, uBlock Origin ab Werk aktiv, Default-Suche DuckDuckGo,
   Safe Browsing ohne Realtime-Lookups, restliche Google-Hintergrunddienste
   gekappt.
-- **Patch 009 (Widevine) blockiert** — braucht einen Lizenzvertrag mit
-  Google; Inhaber-Aufgabe, kein Code-Blocker.
+- **Patch 009 (Widevine) — Weg ohne Lizenzvertrag (2026-09-19):**
+  `enable_widevine = true` + `bundle_widevine_cdm = false` in
+  `config/args/common.gn`. browse liefert kein CDM mit, registriert aber die
+  Widevine-Komponente im Component Updater; das CDM kommt beim ersten Start
+  direkt von Googles Update-Server (Vorbild: Chromium-Pakete von
+  Arch/openSUSE/Fedora). Kein Engine-Patch nötig. Grenzen: Linux ja, macOS je
+  nach CDM-Version (VMP-Prüfung), Windows nein (VMP-Signatur nur mit Lizenz).
+  Prüfung am Binary: `scripts/verify-widevine.mjs <port>`. Lizenzvertrag
+  bleibt für Windows und höhere Robustness-Stufen der saubere Weg.
 - **Patch 010 (Client Hints) umgesetzt & verifiziert.**
 - **Patch 011 (Canvas-Noise für `getImageData`) umgesetzt & verifiziert.**
 - **Patch 012 (Canvas-Noise für `toDataURL`/`toBlob`) umgesetzt & verifiziert.**
@@ -51,7 +58,7 @@ Reihenfolge = empfohlene Umsetzung. „Größe" = grobe Patch-/Build-Komplexitä
 | 006 | **Default-Suchmaschine entgooglen** | S | mittel — Privacy-Haltung | Prebuilt-Suchanbieter-Liste: datenschutzfreundliche Default (z. B. DuckDuckGo), Google bleibt wählbar. `template_url_prewritten`/`search_engines`. |
 | 007 | **Safe Browsing ohne Google-Verlauf** | M | mittel-hoch — schützt ohne Datenabfluss | Standard-Safe-Browsing (lokale Listen-API v4) beibehalten, aber „Enhanced"/Realtime-Lookups aus; ggf. eigener/proxied Update-Endpoint. Vermeidet ungoogled-Fehler (Schutz ganz weg). |
 | 008 | **Restliche Google-Hintergrunddienste kappen** | M | mittel — Degoogling vervollständigen | Field-Trials/Variations-Fetch, Domain-Reliability, GCM/Push-Anmeldung, Translate-Backend gezielt deaktivieren (viele als GN-Arg/Feature-Flag statt Codepatch). |
-| 009 | **Widevine-DRM** | L | hoch für Streaming-Nutzer | Widevine-Lizenz + `enable_widevine=true`; erst nach Lizenzvertrag. Bis dahin ehrlich kommuniziert (Landing-Page-Disclaimer steht). **Blockiert auf Inhaber (Lizenz).** |
+| 009 | **Widevine-DRM** | S | hoch für Streaming-Nutzer | 🔄 **GN-only, ohne Lizenz** (2026-09-19): `enable_widevine=true`, `bundle_widevine_cdm=false` → CDM per Component Updater von Google. Linux ✅, macOS ❓ (VMP, am Binary testen), Windows ❌ (braucht Lizenz + VMP-Signatur). Landing Page kommuniziert das ehrlich. Lizenzvertrag bleibt Inhaber-Aufgabe für Windows. |
 | 010 | **Fingerprinting-Schutz — Client Hints** | S | mittel — schließt eine kostenlose Fingerprint-Quelle | ✅ **umgesetzt** (`010-reduce-client-hints.patch`): `kUA`/`kUAMobile`/`kUAPlatform` sind die einzigen Client Hints, die Upstream ohne Site-Opt-in an jede Origin schickt (`blink::IsClientHintSentByDefault`, konsumiert von `content/browser/client_hints`' `IsClientHintEnabled`). Patch macht sie wie jeden High-Entropy-Hint opt-in-pflichtig (Accept-CH); `Save-Data` bleibt an, da nutzergewählte Präferenz statt Geräte-Fingerprint. Einzeiliger, gut umrissener Eingriff in eine Funktion — genau das Kaliber, das Patch-Minimalismus erlaubt. |
 | 011 | **Fingerprinting-Schutz — Canvas-Noise (`getImageData`)** | M | hoch — deckt den meistgenutzten Canvas-Fingerprint-Vektor | ✅ **umgesetzt** (`011-canvas-noise.patch`): `BaseRenderingContext2D::getImageDataInternal` (gemeinsame Basis für `<canvas>` UND `OffscreenCanvas`) perturbiert nach erfolgreichem `readPixels` ~1 von 8 Pixeln um ±1 auf einem RGB-Kanal (nie Alpha). Seed = Prozess-Zufallssalt XOR `base::Hash(Origin)` — stabil pro Origin für die Prozesslaufzeit, unterschiedlich zwischen Origins, neu nach Neustart. Verifiziert per CDP gegen das gebaute Binary: gleiche Origin/zweiter Read → bytegleich; zwei Origins, identische Zeichnung → unterschiedlicher Pixel-Checksum, Mittelwert-Differenz 0.0008 (unsichtbar). Musste auf `gfx::SkPixmapToWritableSpan` umgestellt werden — rohe Pointer-Arithmetik verletzt Chromiums `-Wunsafe-buffer-usage`. |
 | 012 | **Fingerprinting-Schutz — `toDataURL`/`toBlob`-Noise** | M | mittel-hoch — zweiter und dritter klassischer Canvas-Fingerprint-Vektor | ✅ **umgesetzt** (`012-canvas-export-noise.patch`): `toDataURL`/`toBlob` (inkl. `OffscreenCanvas.convertToBlob`, gleiche `CanvasAsyncBlobCreator`-Klasse) lesen ihre Pixel über `SkImage::peekPixels()` — Zero-Copy-Sicht auf Speicher, den das Bild noch selbst besitzt (evtl. geteilt mit dem laufenden Canvas-Rendering). Neuer Helfer `MakePrivateCanvasSnapshotAndApplyNoise` erzwingt per `readPixels()` erst eine private Kopie, bevor gerauscht wird — sonst Korruptionsrisiko für geteilte Bilder. `ImageDataBuffer::ApplyOriginNoise()` ist bewusst opt-in: `ImageDataBuffer` wird auch von DevTools-Audits, Accessibility und Video-Poster-Capture genutzt, die keine JS-exponierte Fingerprint-Fläche sind. Verifiziert per CDP: `toDataURL`/`toBlob` je stabil pro Origin, unterschiedlich zwischen Origins (auch unterschiedliche PNG-Byte-Länge); `getImageData`-Regression nach dem Refactor geprüft — funktioniert weiter. |
@@ -94,7 +101,7 @@ anderem Namen. Öffentliche Beta.
 
 - **Icon-Set** — eigenes Logo/Icon; bis dahin trägt browse das Chromium-Icon.
 - **Apple Developer Account** (Signing/Notarisierung, Phase 2).
-- **Widevine-Lizenz** (Patch 009).
+- **Widevine-Lizenz** (Patch 009) — nur noch für Windows-DRM und höhere Robustness nötig.
 - **Hetzner-Token** — sobald Linux-Release-Builds anstehen.
 
 ## Merge-/Wartungsstrategie

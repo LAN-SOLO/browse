@@ -25,9 +25,15 @@ enable_reporting = false
 enable_remoting = false
 enable_hangout_services_extension = false
 
-# Full media support (except DRM): streaming sites should not feel broken.
+# Full media support: streaming sites should not feel broken.
 proprietary_codecs = true
 ffmpeg_branding = "Chrome"
 
-# Widevine stays off until the license exists (BROWSE_PLAN.md §2.3).
-enable_widevine = false
+# Widevine ohne Lizenzvertrag: browse liefert KEIN CDM mit (bundle=false),
+# registriert aber die Widevine-Komponente im Component Updater. Der Browser
+# holt das CDM beim ersten Start direkt von Googles Update-Server — wie die
+# Chromium-Pakete von Arch/openSUSE/Fedora. Funktioniert unter Linux, unter
+# macOS je nach CDM-Version (VMP-Prüfung), unter Windows NICHT (VMP-Signatur
+# nur mit Lizenz). Siehe docs/ROADMAP.md, Patch 009.
+enable_widevine = true
+bundle_widevine_cdm = false
