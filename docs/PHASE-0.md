@@ -39,6 +39,13 @@ ohne stundenlangen Compile.
 
 ## Befunde aus dem ersten vollen Build (2026-08-14/15, macOS arm64)
 
+0. **Frischer Checkout auf neuer Platte (2026-09-19/20):** `fetch-chromium.sh`
+   brach direkt nach dem depot_tools-Klon ab (`python3_bin_reldir.txt not
+   found`) — frische depot_tools brauchen einmal `ensure_bootstrap`, jetzt im
+   Skript. Fetch 152.0.7977.42 auf USB-SSD: ~3 h Download (30 GB Pack,
+   ~11 MB/s) + gclient-Sync, 113 GB; Vollbuild danach 3 h 45 min auf dem
+   M1 Max (58 k Schritte). Alle 13 Patches applizieren sauber auf den
+   frischen Tag.
 1. **PGO braucht Profile im Checkout** — `is_official_build=true` schlägt ohne
    sie fehl. Dev-Builds: `chrome_pgo_phase = 0`; Release-Builds aktivieren
    stattdessen die gclient-Var `checkout_pgo_profiles` + runhooks.
