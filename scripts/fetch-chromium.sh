@@ -16,6 +16,9 @@ if [[ ! -d "$DEPOT" ]]; then
   git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "$DEPOT"
 fi
 export PATH="$DEPOT:$PATH"
+# frisch geklonte depot_tools brauchen einmal ensure_bootstrap (python3_bin_reldir.txt),
+# sonst bricht `fetch` sofort ab; idempotent, bei vorhandenem Bootstrap ein No-Op
+"$DEPOT/ensure_bootstrap"
 
 if [[ ! -d "$WORK/src" ]]; then
   # a killed first attempt leaves .gclient + temp dirs behind; `fetch` refuses
