@@ -13,7 +13,7 @@
 //        (or BROWSE_TEST_CHROMIUM=<binary>). Needs Node >= 22 (WebSocket).
 //        Exit 0 = all checks passed.
 import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,15 +34,18 @@ const check = (ok, what) => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-let chrome = null;
+let chrome = null; let UD = null;
 // fresh browser + fresh profile per phase: the page checks must not see tabs
 // or state left over from the toolbar checks
+// Port 0 + DevToolsActivePort: a random fixed port could hit ANOTHER browser
+// already listening there (parallel test runs, a dev shell) and the test then
+// searched that browser for the extension — "service worker not found".
 function launch() {
-  PORT = 9400 + Math.floor(Math.random() * 400);
+  PORT = 0;
   const ud = mkdtempSync(join(tmpdir(), 'browse-handbook-test-'));
-  DIRS.push(ud);
+  DIRS.push(ud); UD = ud;
   chrome = spawn(BIN, [
-    '--headless=new', `--remote-debugging-port=${PORT}`, `--user-data-dir=${ud}`,
+    '--headless=new', '--remote-debugging-port=0', `--user-data-dir=${ud}`,
     '--no-first-run', '--no-default-browser-check', '--lang=en-US',
     '--enable-unsafe-extension-debugging',
     // older snapshots still honour --load-extension with this; newer ones need
@@ -59,8 +62,10 @@ const onMessage = (e) => {
   if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); } else if (m.method) events.push(m);
 };
 async function connect() {
-  for (let i = 0; i < 50; i++) {
+  for (let i = 0; i < 150; i++) {
     try {
+      if (!PORT) PORT = Number(readFileSync(join(UD, 'DevToolsActivePort'), 'utf8').split('\n')[0]) || 0;
+      if (!PORT) throw new Error('no port yet');
       const v = await (await fetch(`http://127.0.0.1:${PORT}/json/version`)).json();
       ws = new WebSocket(v.webSocketDebuggerUrl);
       await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
@@ -96,7 +101,7 @@ try {
   let swS = null; let extId = null;
   const loaded = await send('Extensions.loadUnpacked', { path: EXT });
   if (loaded.result?.id) extId = loaded.result.id;
-  for (let i = 0; i < 40 && !swS; i++) {
+  for (let i = 0; i < 120 && !swS; i++) {
     for (const t of await targets()) {
       if (t.type !== 'service_worker' || !t.url.endsWith('/background.js')) continue;
       if (extId && new URL(t.url).host !== extId) continue;

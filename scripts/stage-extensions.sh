@@ -16,6 +16,9 @@ DEST="$APP/Contents/Resources/External Extensions"
 mkdir -p "$DEST"
 # only the id-json manifests and their referenced crx files, not the README
 find "$SRC" -maxdepth 1 \( -name '*.json' -o -name '*.crx' \) -exec cp {} "$DEST/" \;
+# world-readable: a crx packed locally is 0600, and cp keeps that — other
+# user accounts on the Mac could then not install the preinstalled extensions
+find "$DEST" -maxdepth 1 \( -name '*.json' -o -name '*.crx' \) -exec chmod 644 {} +
 shopt -s nullglob
 manifests=("$DEST"/*.json)
 echo "stage-extensions: staged ${#manifests[@]} extension(s) into the bundle"

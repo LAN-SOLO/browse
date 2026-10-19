@@ -174,3 +174,71 @@ die Engine ist Chromium, siehe B1/B14).
    Windows), Widevine (ohne Lizenz erwartbar aus).
 7. Ein echter `cloud-build.sh`-Lauf (kostet Geld) inklusive Snapshot-Wiederlauf
    (F2 in der Praxis).
+
+## Runde 2 – Verifikation (2026-10-20)
+
+**Basis:** `5a2eeee` (Runde-2-Commit), Diff `8de564d..5a2eeee` unabhängig
+gegengeprüft. Wieder ohne Chromium-Build (`./chromium` zeigt auf
+`/Volumes/Prod500GB`, die Platte ist nicht eingehängt). Ziel war, die
+Aussagen aus Runde 2 zu widerlegen.
+
+### Bestätigt (selbst ausgeführt)
+
+- `scripts/test-apply-patches.sh`: grün mit Homebrew-bash 5.3 **und** mit
+  macOS-`/bin/bash` 3.2 sowie mit `PATH=/usr/bin:/bin`.
+- `scripts/test-handbook.mjs`: grün mit Chrome for Testing (chromium-1217) und
+  dem Dev-Shell-Snapshot (`mac_arm-1678667`), je mehrfach, auch nach den
+  Textänderungen unten (76 Prüfungen).
+- `pack-handbook.sh` mit Chrome for Testing und temporärem `HOME`: Schlüssel
+  `0600` in einem `0700`-Ordner, zweiter Lauf überschreibt die CRX korrekt.
+  Der echte `~/.browse/handbook.pem` wurde **nicht** angelegt; die Test-CRX
+  wurde wieder entfernt.
+- `stage-extensions.sh` gegen ein Dummy-Bundle; `shellcheck scripts/*.sh` sauber.
+- Monitor (lokal): Host-/Origin-/Header-Prüfung gelesen; `https://`- und
+  `null`-Origins werden ebenfalls abgewiesen, Preflight wird nicht beantwortet.
+- EXIT-Trap von `cloud-build.sh` läuft auch bei SIGINT/SIGTERM/SIGHUP
+  (mit bash nachgestellt). Ein echter Hetzner-Lauf wurde nicht gemacht.
+
+### Zusätzlich behoben
+
+| # | Befund | Fix | Nachweis |
+| --- | --- | --- | --- |
+| V1 | `test-handbook.mjs` schlug beim ersten Lauf fehl („service worker not found“): zufälliger fester DevTools-Port 9400–9799, bei parallelen Läufen oder offener Dev-Shell landete der Test in einem **fremden** Browser. In CI wäre das ein Flake gewesen. | `--remote-debugging-port=0` + Port aus `DevToolsActivePort` des eigenen Profils; Wartezeit auf den Service Worker 10 s → 30 s. | 3× CfT + 2× Snapshot grün |
+| V2 | `apply-patches.sh` brach unter macOS-`/bin/bash` 3.2 bei leerer Serie mit `APPLIED[@]: unbound variable` ab (`set -u` + leeres Array). | `${APPLIED[@]+"${APPLIED[@]}"}`. | nachgestellt und behoben |
+| V3 | `apply-patches.sh` brauchte `shasum` (Perl), auf minimalen Linux-Images (Cloud-Server, Runner) nicht garantiert. | `sha256sum` bevorzugt, `shasum` als Rückfall. | Self-Test grün, auch mit reduziertem `PATH` |
+| V4 | Lokal gepackte CRX-Dateien sind `0600` (Chromium schreibt sie so, `extensions/prebuilt/ublock.crx` ist es lokal auch), `cp` behält das. Im App-Bundle konnten andere macOS-Benutzerkonten die vorinstallierten Extensions damit nicht lesen. | `pack-handbook.sh` setzt `0644`; `stage-extensions.sh` macht alle gestagten `*.json`/`*.crx` lesbar. | Dummy-Bundle: `-rw-r--r--` |
+| V5 | `pack-handbook.sh` lief mit dem Standardprofil: Läuft schon eine Instanz, übernimmt sie den Befehl, es entsteht keine CRX. Seit F4 bricht das Skript dann zwar ab, aber ohne Grund. | Eigenes Wegwerf-Profil (`--user-data-dir`, per Trap gelöscht). | Lauf mit CfT |
+| V6 | L12: Handbuch „Fingerprinting“. „Je Website verschieden“ stimmt nicht: Das Muster hängt am Origin des aufrufenden Frames (B7), Drittanbieter-Frames können seitenübergreifend dasselbe Muster sehen. Außerdem stand da, „der Schutz“ lasse sich per Flag abschalten. Das Flag (014) schaltet aber nur Canvas- und Audio-Rauschen, nicht die Client-Hints (010). | DE+EN neu formuliert: „je Herkunft (Origin)“, Frame-Hinweis, Flag-Umfang genau benannt. Handbuch-Version bleibt 0.1.0: es wurde nie gepackt (B13), kein Bump nötig. | E2E grün (keine Fremdsprache, keine Platzhalter) |
+| V7 | `cloud-build.sh` warnte nicht bei uncommitteten Änderungen. Der Server baut nur den Commit, lokale Edits fehlen also stillschweigend. | Warnung, wenn `git diff HEAD` nicht leer ist. | `bash -n`, shellcheck |
+
+### Nicht widerlegt, aber präzisiert
+
+- Stamp-Logik (F2): Ein aus der Serie **entfernter** Patch bleibt im Checkout
+  angewendet und fließt nicht in den Fingerabdruck ein (war vorher genauso).
+  Wer einen Patch aus `series` streicht, muss die betroffenen Dateien selbst
+  zurücksetzen.
+- Ändert sich der Inhalt eines schon angewendeten Patches (neue sha256), wird
+  er auf den alten Stand angewendet und läuft in den Konflikt-Hinweis. Das ist
+  so beabsichtigt, ein automatisches Zurückrollen gibt es nicht.
+- Der Testhaken `globalThis.browseHandbook` steht auch im ausgelieferten
+  Service Worker. Er ist nur im eigenen Extension-Kontext erreichbar und daher
+  unkritisch.
+- Salz pro Renderer-Prozess (011): Dasselbe Origin kann in zwei Prozessen
+  verschiedene Muster bekommen. Eine Seite kann das Rauschen dadurch erkennen
+  (ergänzt B7).
+
+### L1–L13, Stichproben außerhalb von Runde 2
+
+L5: `stage-extensions.sh`, `build.sh` und `fetch-chromium.sh` quoten Pfade mit
+Leerzeichen korrekt. Das Windows-Staging fehlt weiterhin (B3). L9:
+`pack-handbook` mit laufender Browser-Instanz (V5); paralleler Testlauf (V1).
+L11: `stage-extensions`-Fehler in `build.sh` wird nur als Warnung gemeldet, der
+Build läuft weiter. Das ist bewusst so, ein Release darf damit aber nicht
+entstehen (gehört zu B2/package.sh). L12: V6. L13: weiterhin Blocker B1.
+`cargo audit`/Windows-Typecheck: entfallen (kein Rust).
+
+### Weiterhin nur mit Build / echter Hardware prüfbar
+
+Unverändert die Liste aus Runde 2. Dazu kommt V4: an einem echten Bundle mit
+zweitem macOS-Benutzerkonto prüfen, dass uBlock und das Handbuch dort
+installiert werden.

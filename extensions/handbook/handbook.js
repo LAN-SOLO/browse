@@ -67,8 +67,11 @@ const CONTENT = {
         <ul>
           <li>Canvas — Pixel-Ausleseoperationen (<code>getImageData</code>,
           <code>toDataURL</code>, <code>toBlob</code>) erhalten ein feines
-          Rauschen, je Website verschieden und nach jedem Neustart neu; das
-          Bild bleibt für das Auge gleich, die Signatur nicht</li>
+          Rauschen, je Herkunft (Origin) verschieden und spätestens nach
+          einem Neustart neu; das Bild bleibt für das Auge gleich, die
+          Signatur nicht. Eingebettete Frames bekommen das Muster ihrer
+          eigenen Herkunft — ein Drittanbieter-Frame kann also auf
+          verschiedenen Websites dasselbe Muster sehen</li>
           <li>WebAudio — ausgelesene Audio-Puffer
           (<code>getChannelData</code>, <code>copyFromChannel</code>)
           bekommen dasselbe Prinzip, unhörbar</li>
@@ -80,9 +83,10 @@ const CONTENT = {
         und Bildschirmmaße. Kein Browser verhindert Fingerprinting
         vollständig; uBlock Origin blockiert zusätzlich bekannte
         Fingerprinting-Skripte.</p>
-        <p>Der Schutz ist standardmäßig aktiv und lässt sich unter
-        <code>chrome://flags/#fingerprinting-protection</code> abschalten,
-        falls eine Website Probleme macht.</p>`,
+        <p>Das Canvas- und Audio-Rauschen ist standardmäßig aktiv und lässt
+        sich unter <code>chrome://flags/#fingerprinting-protection</code>
+        abschalten, falls eine Website Probleme macht. Die Änderung an den
+        Client-Hints ist fest eingebaut und bleibt davon unberührt.</p>`,
     },
     {
       id: 'google',
@@ -202,8 +206,10 @@ const CONTENT = {
         <ul>
           <li>Canvas — pixel readouts (<code>getImageData</code>,
           <code>toDataURL</code>, <code>toBlob</code>) receive subtle noise,
-          different per site and new after every restart; the image looks
-          the same, the signature does not</li>
+          different per origin and new after a restart at the latest; the
+          image looks the same, the signature does not. Embedded frames get
+          the pattern of their own origin — a third-party frame can therefore
+          see the same pattern on different sites</li>
           <li>WebAudio — audio buffers read back
           (<code>getChannelData</code>, <code>copyFromChannel</code>) get the
           same treatment, inaudibly</li>
@@ -214,9 +220,10 @@ const CONTENT = {
         <p>Not covered are, among others, WebGL, installed fonts and screen
         metrics. No browser prevents fingerprinting completely; uBlock Origin
         additionally blocks known fingerprinting scripts.</p>
-        <p>Protection is on by default and can be disabled at
+        <p>Canvas and audio noise are on by default and can be disabled at
         <code>chrome://flags/#fingerprinting-protection</code> if a site
-        misbehaves.</p>`,
+        misbehaves. The client-hints change is built in and not affected by
+        that flag.</p>`,
     },
     {
       id: 'google',

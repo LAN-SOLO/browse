@@ -36,7 +36,9 @@ node scripts/test-handbook.mjs <chromium-binary> # Handbuch-Extension E2E (DE/EN
 ```
 
 Als `<chromium-binary>` taugt jeder Chromium ≥ 116, z. B. der Dev-Shell-Snapshot
-(`cat .cache/chromium-bin-path.txt`). Alle drei laufen auch in CI.
+(`cat .cache/chromium-bin-path.txt`). Alle drei laufen auch in CI; der
+Handbuch-Test holt sich einen freien DevTools-Port und läuft daher auch parallel
+zu einer offenen Dev-Shell.
 
 Hinweis: `./chromium` ist lokal oft ein Symlink auf eine Build-Platte und
 steht bewusst nicht in git.

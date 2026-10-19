@@ -36,7 +36,13 @@ series_names() {
   done < "$SERIES"
 }
 
-sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
+# sha256 of a file ($1) or of stdin; coreutils sha256sum where shasum (perl)
+# is missing (minimal Linux images), shasum on macOS
+if command -v sha256sum >/dev/null 2>&1; then
+  sha256() { sha256sum "$@" | cut -d' ' -f1; }
+else
+  sha256() { shasum -a 256 "$@" | cut -d' ' -f1; }
+fi
 
 # every path any series patch touches (post-image side of the diff header)
 touched_paths() {
@@ -60,7 +66,7 @@ fingerprint() {
         printf '%s -\n' "$p"
       fi
     done < <(touched_paths)
-  } | shasum -a 256 | cut -d' ' -f1
+  } | sha256
 }
 
 APPLIED=()   # "name sha" of every patch considered applied, in series order
@@ -68,7 +74,7 @@ write_stamp() {
   local tmp="$STAMP.tmp" entry
   {
     printf 'fingerprint %s\n' "$(fingerprint)"
-    for entry in "${APPLIED[@]}"; do printf 'patch %s\n' "$entry"; done
+    for entry in ${APPLIED[@]+"${APPLIED[@]}"}; do printf 'patch %s\n' "$entry"; done
   } > "$tmp"
   mv -f "$tmp" "$STAMP"
 }

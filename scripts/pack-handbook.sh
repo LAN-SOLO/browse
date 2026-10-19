@@ -33,7 +33,12 @@ chmod 600 "$KEY"
 # it first and check that a fresh file really appeared.
 CRX="$ROOT/extensions/handbook.crx"
 rm -f "$CRX"
-"$BIN" --pack-extension="$SRC" --pack-extension-key="$KEY" --no-message-box >/dev/null 2>&1 || true
+# own throwaway profile: with the default one, a browser instance that is
+# already running takes the command over (process singleton), this call exits
+# at once and no crx appears
+PACK_PROFILE="$(mktemp -d "${TMPDIR:-/tmp}/browse-pack.XXXXXX")"
+trap 'rm -rf "$PACK_PROFILE"' EXIT
+"$BIN" --user-data-dir="$PACK_PROFILE" --pack-extension="$SRC" --pack-extension-key="$KEY" --no-message-box >/dev/null 2>&1 || true
 [[ -s "$CRX" ]] || { echo "pack-handbook: $BIN did not produce $CRX" >&2; exit 1; }
 
 # Extension id = first 16 bytes of SHA256 over the DER public key, mapped a–p.
@@ -42,6 +47,9 @@ ID="$(openssl rsa -in "$KEY" -pubout -outform DER 2>/dev/null \
 VERSION="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["version"])' "$SRC/manifest.json")"
 
 mv "$CRX" "$OUT/handbook.crx"
+# Chromium writes the crx owner-only (0600); in an installed app every macOS
+# user account must be able to read it
+chmod 644 "$OUT/handbook.crx"
 printf '{\n  "external_crx": "handbook.crx",\n  "external_version": "%s"\n}\n' "$VERSION" > "$OUT/$ID.json"
 
 echo "pack-handbook: packed handbook v$VERSION as $ID"

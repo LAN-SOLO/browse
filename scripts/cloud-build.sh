@@ -72,6 +72,10 @@ fi
 
 git -C "$ROOT" branch -r --contains "$REV" 2>/dev/null | grep -q . \
   || echo "cloud-build: WARNING — $REV is not on any remote branch you fetched; push it first or the remote checkout fails" >&2
+# uncommitted local edits never reach the server — say so instead of letting
+# the user believe the build contains them
+git -C "$ROOT" diff --quiet HEAD -- 2>/dev/null \
+  || echo "cloud-build: WARNING — uncommitted changes in $ROOT are NOT part of this build (it builds commit $REV)" >&2
 
 # Fresh known_hosts per run: Hetzner recycles IPs, so a stale entry for a
 # previous server on the same IP made StrictHostKeyChecking abort the run, and
