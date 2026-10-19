@@ -1,0 +1,5 @@
+{
+  "extName": { "message": "browse handbook" },
+  "extDescription": { "message": "The built-in browse handbook — features, protections and how to use them." },
+  "actionTitle": { "message": "Open handbook" }
+}

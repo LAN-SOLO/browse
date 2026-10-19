@@ -30,3 +30,8 @@ Hinweis: Der Packing-Key (`.pem`) wird bewusst NICHT eingecheckt. Ein neuer Key
 ergibt eine neue ID — beim Bump einfach den JSON-Dateinamen mitziehen. External
 CRX-Extensions aktualisieren sich nicht selbst; Updates kommen über einen
 browse-Version-Bump.
+
+Plattformstand: Das Staging läuft nur für macOS (`build.sh` → `stage-extensions.sh`).
+Windows- und Linux-Builds bekommen die Extensions noch nicht — siehe
+`AUDIT-1.0.md` (B3). `handbook.crx` fehlt hier, bis `scripts/pack-handbook.sh`
+einmal mit einem gebauten Binary gelaufen ist (B13).

@@ -1,8 +1,14 @@
 # browse handbook (Komponenten-Extension)
 
 Das eingebaute Benutzerhandbuch von browse: eine minimale MV3-Extension ohne
-Dependencies. Der Werkzeugleisten-Knopf öffnet `handbook.html` — DE/EN,
+Dependencies. Der Werkzeugleisten-Knopf (Puzzle-Menü, anpinnbar) öffnet
+`handbook.html` bzw. holt einen schon offenen Handbuch-Tab nach vorn — DE/EN,
 Terminal-Look passend zur Tool-Familie, Inhalt in `handbook.js` (`CONTENT`).
+Manifest-Texte kommen aus `_locales/{de,en}`; Tastenkürzel werden je Plattform
+eingesetzt (`{{cmdk}}` → `⌘K` / `Strg+K` / `Ctrl+K`).
+
+Hinweis: Offene Tabs findet `background.js` über `chrome.runtime.getContexts()`
+— `chrome.tabs.query({url})` liefert ohne `tabs`-Berechtigung stumm nichts.
 
 ## Warum eine Extension?
 
@@ -21,8 +27,19 @@ liegt außerhalb des Repos unter `~/.browse/handbook.pem` (bestimmt die
 Extension-ID — nicht verlieren, nicht einchecken). `stage-extensions.sh`
 bündelt danach alles Vorgepackte automatisch in die App.
 
+## Testen
+
+```
+node scripts/test-handbook.mjs <chromium-binary>
+```
+
+lädt die Extension entpackt in ein Headless-Chromium und prüft Tab-Logik,
+Sprachen, hell/dunkel, 360 px Breite, Shortcut-Labels und blockierten Storage.
+
 ## Inhalt pflegen
 
 Bei jedem Feature-Patch, der Nutzersichtbares ändert, die betroffene Sektion
 in `handbook.js` in BEIDEN Sprachen nachziehen und die Version in
-`manifest.json` anheben.
+`manifest.json` anheben (externe CRX-Updates greifen nur bei höherer
+`external_version`). Der Text muss beschreiben, was der Build wirklich tut —
+Lücken (Plattformen, nicht abgedeckte APIs) benennen statt verschweigen.

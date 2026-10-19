@@ -1,5 +1,7 @@
-# toolchain + checkout (fetched by scripts/, never committed)
-/chromium/
+# toolchain + checkout (fetched by scripts/, never committed). No trailing
+# slash: locally ./chromium is often a symlink to a build disk, and "/chromium/"
+# only matches directories — that is how the link once ended up in git.
+/chromium
 /.cache/
 /.dev-profile/
 

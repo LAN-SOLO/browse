@@ -21,6 +21,11 @@ jobs:
         run: |
           python3 -m json.tool config/policies/managed/browse-defaults.json > /dev/null
           python3 -m json.tool config/initial_preferences.json > /dev/null
+          for f in extensions/handbook/manifest.json extensions/handbook/_locales/*/messages.json extensions/prebuilt/*.json; do
+            python3 -m json.tool "$f" > /dev/null
+          done
+          node --check extensions/handbook/background.js
+          node --check extensions/handbook/handbook.js
           echo "JSON ok"
 
       - name: patch series consistency
@@ -30,6 +35,9 @@ jobs:
             test -f "patches/$name" || { echo "missing patches/$name"; exit 1; }
           done < patches/series
           echo "series ok"
+
+      - name: apply-patches.sh self-test (overlapping patches, re-runs)
+        run: ./scripts/test-apply-patches.sh
 
       - name: uBlock lock resolves & checksum matches
         run: |
@@ -51,6 +59,8 @@ jobs:
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: run smoke test
         run: ./scripts/dev-shell.sh --smoke
+      - name: handbook extension e2e (DE/EN, light/dark, phone width)
+        run: node scripts/test-handbook.mjs "$(cat .cache/chromium-bin-path.txt)"
       - name: dump browser log on failure
         if: failure()
         run: tail -60 .cache/dev-shell.log || true

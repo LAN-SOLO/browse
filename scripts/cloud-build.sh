@@ -28,6 +28,10 @@ CACHE_SELECTOR="browse=builder-cache"
 SSH_KEY_NAME="browse-builder"
 REPO_URL="https://github.com/LAN-SOLO/browse.git"
 ARTIFACTS="$ROOT/artifacts"
+# The server builds exactly the local HEAD commit. It must be pushed — the
+# server clones from GitHub and refuses to build anything else (before, it
+# silently built whatever origin/main happened to be).
+REV="$(git -C "$ROOT" rev-parse HEAD)"
 
 YES=0; KEEP=0; SNAPSHOT=0
 for arg in "$@"; do
@@ -66,37 +70,52 @@ if [[ "$YES" -ne 1 ]]; then
   [[ "$answer" == "y" || "$answer" == "Y" ]] || { echo "aborted"; exit 1; }
 fi
 
-echo "cloud-build: creating server $NAME"
-hcloud server create --name "$NAME" --type "$TYPE" --image "$IMAGE" \
-  --ssh-key "$SSH_KEY_NAME" --label browse=builder >/dev/null
-IP="$(hcloud server ip "$NAME")"
+git -C "$ROOT" branch -r --contains "$REV" 2>/dev/null | grep -q . \
+  || echo "cloud-build: WARNING — $REV is not on any remote branch you fetched; push it first or the remote checkout fails" >&2
 
+# Fresh known_hosts per run: Hetzner recycles IPs, so a stale entry for a
+# previous server on the same IP made StrictHostKeyChecking abort the run, and
+# the user's own ~/.ssh/known_hosts filled up with throwaway servers.
+KNOWN_HOSTS="$(mktemp "${TMPDIR:-/tmp}/browse-cloud-known_hosts.XXXXXX")"
+IP=""
 cleanup() {
+  rm -f "$KNOWN_HOSTS"
+  # also runs when create/ip failed half-way: never leave a billed server behind
+  hcloud server describe "$NAME" >/dev/null 2>&1 || return 0
   if [[ "$KEEP" -eq 1 ]]; then
-    echo "cloud-build: --keep set, server $NAME ($IP) stays up — DELETE IT YOURSELF (hcloud server delete $NAME)"
+    echo "cloud-build: --keep set, server $NAME (${IP:-?}) stays up — DELETE IT YOURSELF (hcloud server delete $NAME)"
   else
     echo "cloud-build: deleting server $NAME"
     hcloud server delete "$NAME" >/dev/null || echo "cloud-build: WARNING — delete failed, remove $NAME manually!" >&2
   fi
 }
+# installed BEFORE the server exists, so a failing `server ip` cannot leak it
 trap cleanup EXIT
 
-SSH=(ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 "root@$IP")
+echo "cloud-build: creating server $NAME"
+hcloud server create --name "$NAME" --type "$TYPE" --image "$IMAGE" \
+  --ssh-key "$SSH_KEY_NAME" --label browse=builder >/dev/null
+IP="$(hcloud server ip "$NAME")"
+
+SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o "UserKnownHostsFile=$KNOWN_HOSTS" -o ConnectTimeout=10)
+SSH=(ssh "${SSH_OPTS[@]}" "root@$IP")
 echo "cloud-build: waiting for ssh on $IP"
 for _ in $(seq 1 30); do "${SSH[@]}" true 2>/dev/null && break; sleep 5; done
 "${SSH[@]}" true || { echo "cloud-build: ssh never came up" >&2; exit 1; }
 
 echo "cloud-build: starting remote build (this takes hours — log streams below)"
-"${SSH[@]}" bash -s -- "$FRESH" "$REPO_URL" <<'REMOTE'
+"${SSH[@]}" bash -s -- "$FRESH" "$REPO_URL" "$REV" <<'REMOTE'
 set -euo pipefail
-FRESH="$1"; REPO_URL="$2"
+FRESH="$1"; REPO_URL="$2"; REV="$3"
 export DEBIAN_FRONTEND=noninteractive
 if [[ "$FRESH" -eq 1 ]]; then
   apt-get update -q && apt-get install -y -q git curl python3 pkg-config unzip file lsb-release sudo
   git clone "$REPO_URL" /opt/browse
 else
-  git -C /opt/browse pull --ff-only
+  git -C /opt/browse fetch origin
 fi
+git -C /opt/browse checkout -q --detach "$REV"
+echo "remote: building browse at $(git -C /opt/browse log -1 --format='%h %s')"
 cd /opt/browse
 ./scripts/fetch-chromium.sh
 if [[ "$FRESH" -eq 1 ]]; then
@@ -114,7 +133,7 @@ echo "remote: artifact ready at /tmp/browse-linux.tar.gz"
 REMOTE
 
 mkdir -p "$ARTIFACTS"
-scp -o StrictHostKeyChecking=accept-new "root@$IP:/tmp/browse-linux.tar.gz" \
+scp "${SSH_OPTS[@]}" "root@$IP:/tmp/browse-linux.tar.gz" \
   "$ARTIFACTS/browse-linux-$(tr -d '[:space:]' < "$ROOT/chromium_version.txt").tar.gz"
 echo "cloud-build: artifact downloaded to $ARTIFACTS/"
 

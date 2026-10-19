@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # browse dev shell — the Phase-0 prototype without compiling Chromium:
-# a pinned Chromium snapshot launched with browse defaults (seeded
+# a Chromium snapshot (newest at first run, then cached in .cache/; override
+# with BROWSE_DEV_CHROMIUM=<snapshot build id>) launched with browse defaults (seeded
 # preferences, degoogled runtime flags) plus uBlock Origin Lite loaded via
 # CDP Extensions.loadUnpacked.
 #
@@ -13,6 +14,11 @@
 #   dev-shell.sh --smoke  headless smoke test: browser starts, uBO Lite
 #                         actually loads, then exits
 #   dev-shell.sh --reset  wipe the dev profile first
+#
+# Security note (dev only): the shell keeps a DevTools port open on
+# 127.0.0.1:$PORT for the whole session (extension loading needs it). Any
+# local process can drive this browser through it — use the dev profile for
+# testing only, never log into real accounts in it.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -39,7 +45,8 @@ UBOL_DIR="$CACHE/ubol/$UBOL_VERSION"
 BIN_MARKER="$CACHE/chromium-bin-path.txt"
 if [[ ! -f "$BIN_MARKER" ]] || [[ ! -x "$(cat "$BIN_MARKER")" ]]; then
   echo "dev-shell: fetching chromium snapshot (first run only)"
-  OUT="$(npx --yes @puppeteer/browsers install chromium@latest --path "$CACHE/browsers")"
+  # installer pinned (no floating npx download of whatever was published last)
+  OUT="$(npx --yes @puppeteer/browsers@2.13.2 install "chromium@${BROWSE_DEV_CHROMIUM:-latest}" --path "$CACHE/browsers")"
   # last line looks like: "chromium@<rev> <path>" — path may contain spaces
   echo "$OUT" | tail -1 | sed 's/^[^ ]* //' > "$BIN_MARKER"
 fi

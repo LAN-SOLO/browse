@@ -9,6 +9,13 @@ VERSION="$(tr -d '[:space:]' < "$ROOT/chromium_version.txt")"
 WORK="$ROOT/chromium"
 DEPOT="$WORK/depot_tools"
 
+# ./chromium may be a symlink to an external build disk (local convention, not
+# in git). A dangling one (disk not mounted) made `mkdir -p` fail with a
+# cryptic "No such file or directory" — say what is wrong instead.
+if [[ -L "$WORK" && ! -e "$WORK" ]]; then
+  echo "fetch: $WORK is a symlink to $(readlink "$WORK"), which does not exist — mount the build disk or remove the link" >&2
+  exit 1
+fi
 mkdir -p "$WORK"
 
 if [[ ! -d "$DEPOT" ]]; then

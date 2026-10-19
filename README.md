@@ -22,9 +22,24 @@ Chromium-Snapshot mit browse-Defaults und uBlock Origin Lite:
 ./scripts/dev-shell.sh --smoke  # Headless-Check (läuft auch in CI)
 ```
 
-Offen: Build-Runner-Infrastruktur (self-hosted `chromium-builder`), erster
-voller Chromium-Build, Patches 001–003 (Branding, MV2 keep-alive,
-Store-Anonymisierung).
+Patches 001–014 sind am macOS-Binary verifiziert (`patches/series`,
+`docs/ROADMAP.md`). Audit-Stand, offene Blocker (kein Updater, keine Signatur,
+Windows/Linux ohne vorinstallierte Extensions) und was nur ein Build prüfen
+kann: **`AUDIT-1.0.md`**.
+
+## Tests (ohne Chromium-Build)
+
+```bash
+./scripts/test-apply-patches.sh                 # Patch-Overlay idempotent (überlappende Patches)
+node scripts/test-handbook.mjs <chromium-binary> # Handbuch-Extension E2E (DE/EN, hell/dunkel, 360 px)
+./scripts/dev-shell.sh --smoke                  # Prototyp startet, uBO Lite lädt
+```
+
+Als `<chromium-binary>` taugt jeder Chromium ≥ 116, z. B. der Dev-Shell-Snapshot
+(`cat .cache/chromium-bin-path.txt`). Alle drei laufen auch in CI.
+
+Hinweis: `./chromium` ist lokal oft ein Symlink auf eine Build-Platte und
+steht bewusst nicht in git.
 
 ## Verwandte Repositories
 

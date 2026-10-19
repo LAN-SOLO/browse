@@ -10,7 +10,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/extensions/ublock.lock"
 
 fetch_zip() { # url sha dest_zip
-  curl -fsSL -o "$3" "$1"
+  curl -fsSL --proto '=https' --tlsv1.2 -o "$3" "$1"
   echo "$2  $3" | shasum -a 256 -c - >/dev/null
 }
 
